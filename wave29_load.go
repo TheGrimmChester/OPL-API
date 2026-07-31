@@ -245,8 +245,18 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 			writer.insertAsync("load_runs", append(payload, '\n'))
 		}
 		peerResults := []map[string]interface{}{}
+		fanoutHonesty := "Docker JMeter containers by default; federation fan-out ≠ multi-region load cloud."
 		if body.Fanout {
 			peerResults = fanoutLoadToPeers(body.ScenarioID, id, vus, org, proj)
+			remotePeers := 0
+			for _, p := range federationPeersSnapshot() {
+				if p.Enabled && p.BaseURL != "" && !strings.EqualFold(p.Region, localAgentRegion()) {
+					remotePeers++
+				}
+			}
+			if remotePeers == 0 {
+				fanoutHonesty = "Fan-out local-sample-only — no federation peers configured (set OPA_FEDERATION_PEERS or enable opa.federation_peers). ≠ multi-region load cloud."
+			}
 		}
 		engine := strings.ToLower(nz(body.Engine, envOr("OPA_PERF_ENGINE", "jmeter")))
 		dispatchInfo := map[string]interface{}{"dispatched": false}
@@ -279,7 +289,7 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 			},
 			"fanout_peers": peerResults,
 			"dispatch":     dispatchInfo,
-			"honesty":      "Docker JMeter containers by default; federation fan-out ≠ multi-region load cloud.",
+			"honesty":      fanoutHonesty,
 		})
 		return
 	}
