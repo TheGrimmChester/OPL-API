@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -95,7 +97,9 @@ func clampInt(n, lo, hi int) int {
 	return n
 }
 
-// Federation stubs — fan-out peers live on Agent; Perf Lab runs locally / Docker JMeter.
+// Federation peers — same contract as Agent (OPA_FEDERATION_PEERS + opa.federation_peers).
+// Fan-out POSTs to each peer's Agent /api/federation/remote-load. Without peers,
+// fanoutLoadToPeers is local-sample-only (do not claim live peers).
 type federationPeer struct {
 	ID      string `json:"id"`
 	Region  string `json:"region"`
@@ -104,9 +108,59 @@ type federationPeer struct {
 	Notes   string `json:"notes"`
 }
 
+var (
+	federationPeers []federationPeer
+	federationMu    sync.RWMutex
+)
+
 func localAgentRegion() string { return envOr("OPA_REGION", "local") }
 
-func federationPeersSnapshot() []federationPeer { return nil }
+func initFederationPeers() {
+	loadFederationPeersFromEnv()
+	log.Printf("[federation] region=%s peers=%d (env+CH)", localAgentRegion(), len(federationPeersSnapshot()))
+}
+
+func loadFederationPeersFromEnv() {
+	raw := strings.TrimSpace(os.Getenv("OPA_FEDERATION_PEERS"))
+	if raw == "" {
+		return
+	}
+	var peers []federationPeer
+	if err := json.Unmarshal([]byte(raw), &peers); err != nil {
+		log.Printf("[federation] OPA_FEDERATION_PEERS parse: %v", err)
+		return
+	}
+	for i := range peers {
+		if peers[i].ID == "" {
+			peers[i].ID = peers[i].Region
+		}
+		peers[i].Enabled = true
+		peers[i].BaseURL = strings.TrimRight(peers[i].BaseURL, "/")
+	}
+	federationMu.Lock()
+	federationPeers = peers
+	federationMu.Unlock()
+}
+
+func federationPeersSnapshot() []federationPeer {
+	federationMu.RLock()
+	out := make([]federationPeer, len(federationPeers))
+	copy(out, federationPeers)
+	federationMu.RUnlock()
+	if queryClient != nil {
+		rows, err := queryClient.Query(`SELECT id, region, base_url, enabled, notes FROM opa.federation_peers FINAL WHERE enabled = 1`)
+		if err == nil {
+			for _, r := range rows {
+				out = append(out, federationPeer{
+					ID: getString(r, "id"), Region: getString(r, "region"),
+					BaseURL: strings.TrimRight(getString(r, "base_url"), "/"),
+					Enabled: true, Notes: getString(r, "notes"),
+				})
+			}
+		}
+	}
+	return out
+}
 
 func enforceWriteLocalityHTTP(w http.ResponseWriter, r *http.Request, org, proj string) bool {
 	_ = w

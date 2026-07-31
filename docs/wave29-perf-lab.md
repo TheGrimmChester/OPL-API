@@ -1,14 +1,21 @@
 # Wave 29 — Perf lab (deepened)
 
-Load scenarios correlated into APM via `X-OPA-Load-Run-Id` / baggage `load_run_id`, with optional **federation peer fan-out**. Wave 31 adds **Docker JMeter** as the production execution engine.
+This service owns Perf Lab HTTP APIs (scenarios, runs, JMeter). Agent owns
+`tags.load_run_id` correlation, performance baselines/gate, and
+`POST /api/federation/remote-load` + the peer registry.
+
+Load scenarios correlate into APM via `X-OPA-Load-Run-Id` / baggage `load_run_id`,
+with optional **federation peer fan-out**. Wave 31 adds **Docker JMeter** as the
+production execution engine.
 
 ## Honesty
 
 - Production runs: ephemeral JMeter containers via `PerfContainerRunner` / `DockerRunner` (`OPA_JMETER_IMAGE`).
 - Node `scripts/load-runner.mjs` and host `OPA_JMETER_BIN` are **dev-only** (`OPA_PERF_ALLOW_NODE_FALLBACK=1` / `OPA_PERF_ALLOW_HOST_JMETER=1`).
-- `fanout: true` on `POST /api/perf/runs` dispatches to federation peers via `POST /api/federation/remote-load` (peer runs concurrent HTTP locally or simulates) and merges metrics.
+- `fanout: true` on `POST /api/perf/runs` loads peers from `OPA_FEDERATION_PEERS` and/or ClickHouse `opa.federation_peers`, then POSTs to each peer’s Agent `POST /api/federation/remote-load` and merges metrics.
+- **Without configured peers, fan-out is local-sample-only** — responses say so; do not claim live peers.
 - **Multi-peer fan-out ≠ multi-cloud commercial load grid** — better than one runner, still not a public load cloud.
-- Container worker scale (`workers` / `OPA_JMETER_WORKERS`) splits VUs across N JMeter containers on the same agent.
+- Container worker scale (`workers` / `OPA_JMETER_WORKERS`) splits VUs across N JMeter containers on the same Perf-Lab host.
 
 ## Profiles
 
@@ -20,7 +27,7 @@ Load scenarios correlated into APM via `X-OPA-Load-Run-Id` / baggage `load_run_i
 | `spike` | high VUs, short burst |
 | `ramp` | VUs grow over first half of duration |
 
-Agent `POST /api/perf/runs` also accepts `"profile": "soak"|"spike"|"ramp"` and `"workers": N`.
+`POST /api/perf/runs` also accepts `"profile": "soak"|"spike"|"ramp"` and `"workers": N`.
 
 ## APIs
 
@@ -32,10 +39,10 @@ Agent `POST /api/perf/runs` also accepts `"profile": "soak"|"spike"|"ramp"` and 
 | `POST /api/perf/runs` | Start run; optional `fanout`, `profile`, `workers`, `dispatch` |
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
-| `POST /api/federation/remote-load` | Peer-local load sample |
-| `GET /api/performance/baselines` + `/api/performance/gate` | Wave 11 baselines / gate |
+| `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
+| `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Wave 11 baselines / gate |
 
-Ingest tags spans with `load_run_id` when it sees `X-OPA-Load-Run-Id` or baggage. Dashboard Perf Lab presets + baselines panel; Trace Explorer folds `?load_run_id=` into the filter DSL.
+Agent ingest tags spans with `load_run_id` when it sees `X-OPA-Load-Run-Id` or baggage. Dashboard Perf Lab presets + baselines panel; Trace Explorer folds `?load_run_id=` into the filter DSL.
 
 ## CI
 

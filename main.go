@@ -18,6 +18,7 @@ func main() {
 
 	writer = NewClickHouseWriter(chURL, 100)
 	queryClient = NewClickHouseQuery(chURL)
+	initFederationPeers()
 
 	authRequired := authRequiredEnv()
 	authEnforced = authRequired
