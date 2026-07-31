@@ -1,0 +1,5 @@
+/opa-orchestrator
+/opa-perf-lab
+*.exe
+*.test
+/tmp/
