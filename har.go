@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-// Wave 31+ — HAR / XHR capture import → visual scenario steps (+ optional JMX).
+// JMeter Perf Lab — — HAR / XHR capture import → visual scenario steps (+ optional JMX).
 // Selectors on steps correlate recorded UI actions with HTTP samplers; they are
 // stored in steps_json and mirrored as JMX XML comments (not executable).
 
-func registerWave31CaptureMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
+func registerHARCaptureMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
 	authAdmin("/api/perf/scenarios/import-har", handlePerfImportHAR)
 	authAdmin("/api/perf/scenarios/import-xhr", handlePerfImportXHR)
 	_ = mux

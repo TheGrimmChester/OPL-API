@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Wave 31 hardening: auth, tenancy, SSRF (dial pinning), caps, unsafe JMX, fail-closed SLA.
+// JMeter Perf Lab hardening: auth, tenancy, SSRF (dial pinning), caps, unsafe JMX, fail-closed SLA.
 
 func perfCallerIsAdmin(r *http.Request) bool {
 	if !authEnforced {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Wave 29/31 — concurrent HTTP VU runner with multi-step scenarios (extract/assert/CSV/think).
+ * Perf lab / JMeter — concurrent HTTP VU runner with multi-step scenarios (extract/assert/CSV/think).
  * Primary production engine is Apache JMeter (scripts/jmeter-run.sh); this is the Node fallback.
  *
  * Usage:

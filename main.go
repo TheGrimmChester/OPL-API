@@ -52,8 +52,8 @@ func main() {
 		})
 	})
 
-	registerWave29Mux(mux, authView, authAdmin)
-	registerWave31Mux(mux, authView, authAdmin)
+	registerPerfLabMux(mux, authView, authAdmin)
+	registerJMeterMux(mux, authView, authAdmin)
 
 	srv := &http.Server{
 		Addr:              addr,

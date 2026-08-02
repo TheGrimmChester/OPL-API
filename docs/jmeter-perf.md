@@ -1,4 +1,4 @@
-# Wave 31 — JMeter-compatible Perf Lab
+# JMeter-compatible Perf Lab
 
 Visual scenario builder in the Dashboard generates Apache JMeter `.jmx`. Runs execute in **ephemeral Docker containers** (`justb4/jmeter` by default). Host `OPA_JMETER_BIN` and Node `load-runner.mjs` are **dev-only** opt-ins.
 

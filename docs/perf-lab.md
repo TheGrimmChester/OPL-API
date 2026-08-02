@@ -1,11 +1,11 @@
-# Wave 29 — Perf lab (deepened)
+# Perf lab
 
 This service owns Perf Lab HTTP APIs (scenarios, runs, JMeter). Agent owns
 `tags.load_run_id` correlation, performance baselines/gate, and
 `POST /api/federation/remote-load` + the peer registry.
 
 Load scenarios correlate into APM via `X-OPA-Load-Run-Id` / baggage `load_run_id`,
-with optional **federation peer fan-out**. Wave 31 adds **Docker JMeter** as the
+with optional **federation peer fan-out**. JMeter Perf Lab adds **Docker JMeter** as the
 production execution engine.
 
 ## Honesty
@@ -40,7 +40,7 @@ production execution engine.
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
-| `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Wave 11 baselines / gate |
+| `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
 
 Agent ingest tags spans with `load_run_id` when it sees `X-OPA-Load-Run-Id` or baggage. Dashboard Perf Lab presets + baselines panel; Trace Explorer folds `?load_run_id=` into the filter DSL.
 
