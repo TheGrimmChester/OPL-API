@@ -14,13 +14,13 @@ import (
 	"time"
 )
 
-// Wave 31: JMeter-shaped Perf Lab — multi-step scenarios, JMX import/export,
+// JMeter Perf Lab: JMeter-shaped Perf Lab — multi-step scenarios, JMX import/export,
 // validate dry-run, SLA gate. Production execution is ephemeral Docker JMeter
 // containers (PerfContainerRunner); Node load-runner is a gated dev fallback.
 
-func registerWave31Mux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
+func registerJMeterMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
 	authAdmin("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
-	registerWave31CaptureMux(mux, authView, authAdmin)
+	registerHARCaptureMux(mux, authView, authAdmin)
 	authView("/api/perf/scenarios/", handlePerfScenarioSubroutes)
 	_ = mux
 }
@@ -68,7 +68,7 @@ func handlePerfScenarioGet(w http.ResponseWriter, r *http.Request, id string) {
 			headers_json, body, thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml, updated_at
 		FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 	if err != nil || len(rows) == 0 {
-		// Fallback without wave31 columns for pre-migration agents.
+		// Fallback without JMeter columns for pre-migration agents.
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json, updated_at
 			FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))

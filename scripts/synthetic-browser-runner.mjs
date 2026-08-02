@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Optional Chromium journey runner for Wave 20 browser checks.
+ * Optional Chromium journey runner for Synthetics depth browser checks.
  * Set OPA_BROWSER_RUNNER to this script. Reads JSON on stdin, writes JSON on stdout.
  *
  * With playwright: real goto/click/fill + screenshot_b64 + short DOM on failure.

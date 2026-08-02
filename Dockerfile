@@ -1,4 +1,4 @@
-# OPA Perf Lab — Wave 29/31 load scenarios + Docker JMeter
+# OPA Perf Lab — load scenarios + Docker JMeter
 FROM golang:1.25-alpine AS builder
 RUN apk --no-cache add git ca-certificates
 WORKDIR /app

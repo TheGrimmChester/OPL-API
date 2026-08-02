@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wave 31 — run Apache JMeter non-GUI against a plan.jmx via Docker (default).
+# JMeter Perf Lab — run Apache JMeter non-GUI against a plan.jmx via Docker (default).
 # Host bin is opt-in: OPA_PERF_ALLOW_HOST_JMETER=1.
 # Usage:
 #   ./scripts/jmeter-run.sh /path/to/plan.jmx [/path/to/results.jtl] [LOAD_RUN_ID]

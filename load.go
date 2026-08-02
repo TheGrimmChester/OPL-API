@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// Wave 29: Perf lab — load scenarios, runs, metrics, k6 export (single-runner MVP).
+// Perf lab — load scenarios, runs, metrics, k6 export (single-runner MVP).
 
-func registerWave29Mux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
+func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
 	authView("/api/perf/scenarios", handlePerfScenarios)
 	authView("/api/perf/runs", handlePerfRunsListOrCreate)
 	authView("/api/perf/runs/", handlePerfRunByID)
