@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"net/http"
 	"time"
 )
@@ -13,6 +14,10 @@ var (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "orchestrator" {
+		runOPLOrchestrator()
+		return
+	}
 	addr := envOr("HTTP_ADDR", ":8092")
 	chURL := envOr("CLICKHOUSE_URL", "http://127.0.0.1:8123")
 
@@ -47,7 +52,7 @@ func main() {
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{
 			"status":  "ok",
-			"service": "opa-perf-lab",
+			"service": "opl-api",
 			"version": buildVersion,
 		})
 	})
