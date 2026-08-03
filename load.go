@@ -50,13 +50,13 @@ func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, thresholds_json,
 			steps_json, datasets_json, sla_json, schedule_json,
 			length(jmx_xml) AS jmx_bytes, updated_at
-		FROM opa.load_scenarios FINAL WHERE 1=1%s
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE 1=1%s
 		ORDER BY updated_at DESC LIMIT 100`, scope))
 	if err != nil {
 		// Pre-migration 0032 fallback.
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, thresholds_json, updated_at
-			FROM opa.load_scenarios FINAL WHERE 1=1%s
+			FROM ` + chTable("load_scenarios") + ` FINAL WHERE 1=1%s
 			ORDER BY updated_at DESC LIMIT 100`, scope))
 		if err != nil {
 			writeJSON(w, map[string]interface{}{"scenarios": []interface{}{}})
@@ -300,7 +300,7 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 	scope := tenantScopeSQL(r, queryClient, "")
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, scenario_id, status, vus, started_at, finished_at, summary_json, error
-		FROM opa.load_runs WHERE 1=1%s
+		FROM ` + chTable("load_runs") + ` WHERE 1=1%s
 		ORDER BY started_at DESC LIMIT 100`, scope))
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"runs": []interface{}{}})
@@ -340,7 +340,7 @@ func handlePerfRunByID(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, scenario_id, status, vus, started_at, finished_at, summary_json, error
-		FROM opa.load_runs WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
+		FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
 	if err != nil || len(rows) == 0 {
 		http.Error(w, "not found", 404)
 		return
@@ -404,7 +404,7 @@ func handlePerfRunMetrics(w http.ResponseWriter, r *http.Request, id string) {
 	runScenarioID := ""
 	if queryClient != nil {
 		rows, err := queryClient.Query(fmt.Sprintf(`
-			SELECT id, scenario_id FROM opa.load_runs WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
+			SELECT id, scenario_id FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
 		if err != nil || len(rows) == 0 {
 			http.Error(w, "run not found", 404)
 			return

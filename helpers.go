@@ -97,7 +97,7 @@ func clampInt(n, lo, hi int) int {
 	return n
 }
 
-// Federation peers — same contract as Agent (OPA_FEDERATION_PEERS + opa.federation_peers).
+// Federation peers — same contract as Agent (OPA_FEDERATION_PEERS + hub federation_peers).
 // Fan-out POSTs to each peer's Agent /api/federation/remote-load. Without peers,
 // fanoutLoadToPeers is local-sample-only (do not claim live peers).
 type federationPeer struct {
@@ -148,7 +148,7 @@ func federationPeersSnapshot() []federationPeer {
 	copy(out, federationPeers)
 	federationMu.RUnlock()
 	if queryClient != nil {
-		rows, err := queryClient.Query(`SELECT id, region, base_url, enabled, notes FROM opa.federation_peers FINAL WHERE enabled = 1`)
+		rows, err := queryClient.Query(`SELECT id, region, base_url, enabled, notes FROM ` + hubTable("federation_peers") + ` FINAL WHERE enabled = 1`)
 		if err == nil {
 			for _, r := range rows {
 				out = append(out, federationPeer{
