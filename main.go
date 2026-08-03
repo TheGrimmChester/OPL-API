@@ -23,7 +23,9 @@ func main() {
 
 	writer = NewClickHouseWriter(chURL, 100)
 	queryClient = NewClickHouseQuery(chURL)
+	ensureClickHouseDatabase(queryClient)
 	initFederationPeers()
+	initAuthMode()
 
 	authRequired := authRequiredEnv()
 	authEnforced = authRequired
@@ -51,11 +53,14 @@ func main() {
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{
-			"status":  "ok",
-			"service": "opl-api",
-			"version": buildVersion,
+			"status":    "ok",
+			"service":   "opl-api",
+			"version":   buildVersion,
+			"database":  clickHouseDatabase(),
+			"auth_mode": string(authMode),
 		})
 	})
+	registerLocalAuthMux(mux)
 
 	registerPerfLabMux(mux, authView, authAdmin)
 	registerJMeterMux(mux, authView, authAdmin)
@@ -69,7 +74,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	log.Printf("OPA Perf Lab listening on %s (CH=%s)", addr, chURL)
+	log.Printf("opl-api listening on %s (CH=%s db=%s)", addr, chURL, clickHouseDatabase())
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("listen: %v", err)
 	}
