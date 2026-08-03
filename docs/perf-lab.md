@@ -1,6 +1,6 @@
 # Perf lab
 
-This service owns Perf Lab HTTP APIs (scenarios, runs, JMeter). Agent owns
+OPL-API (`opl-api`) owns Perf Lab HTTP APIs (scenarios, runs, JMeter). OPA owns
 `tags.load_run_id` correlation, performance baselines/gate, and
 `POST /api/federation/remote-load` + the peer registry.
 
@@ -42,7 +42,7 @@ production execution engine.
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
 | `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
 
-Agent ingest tags spans with `load_run_id` when it sees `X-OPA-Load-Run-Id` or baggage. Dashboard Perf Lab presets + baselines panel; Trace Explorer folds `?load_run_id=` into the filter DSL.
+OPA ingest tags spans with `load_run_id` when it sees `X-OPA-Load-Run-Id` or baggage. OPL-Dashboard presets + baselines panel; Trace Explorer folds `?load_run_id=` into the filter DSL.
 
 ## CI
 
