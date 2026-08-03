@@ -19,3 +19,5 @@
 | **Co-deployed** | Share `JWT_SECRET` with **OPA-Hub**; hub issues; `opl-api` validates. |
 
 Scopes typically used: `ingest:load_run`, `traces:read`, `health:read`.
+
+OPL writes product tables into `CLICKHOUSE_DB` (default `opl`). Hub org/project/API-key lookups use database `opa`.

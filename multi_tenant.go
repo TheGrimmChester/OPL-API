@@ -42,8 +42,8 @@ func ExtractTenantContext(r *http.Request, queryClient *ClickHouseQuery) (*Tenan
 			// Extract org/project from DSN by querying projects table
 			dsn := strings.TrimPrefix(authHeader, "Bearer ")
 			dsn = strings.TrimPrefix(dsn, "DSN ")
-			query := fmt.Sprintf("SELECT org_id, project_id FROM opa.projects WHERE dsn = '%s' LIMIT 1",
-				escapeSQL(dsn))
+			query := fmt.Sprintf("SELECT org_id, project_id FROM %s WHERE dsn = '%s' LIMIT 1",
+				hubTable("projects"), escapeSQL(dsn))
 			rows, err := queryClient.Query(query)
 			if err == nil && len(rows) > 0 {
 				ctx.OrganizationID = getString(rows[0], "org_id")
@@ -64,8 +64,8 @@ func ExtractTenantContext(r *http.Request, queryClient *ClickHouseQuery) (*Tenan
 				if len(keyParts) >= 3 {
 					keyHash = strings.Join(keyParts[2:], ":")
 				}
-				query := fmt.Sprintf("SELECT org_id, project_id FROM opa.api_keys WHERE key_hash = '%s' LIMIT 1",
-					escapeSQL(keyHash))
+				query := fmt.Sprintf("SELECT org_id, project_id FROM %s WHERE key_hash = '%s' LIMIT 1",
+					hubTable("api_keys"), escapeSQL(keyHash))
 				rows, err := queryClient.Query(query)
 				if err == nil && len(rows) > 0 {
 					ctx.OrganizationID = getString(rows[0], "org_id")
@@ -248,8 +248,8 @@ func TenantMiddleware(handler http.HandlerFunc, queryClient *ClickHouseQuery) ht
 		}
 
 		// Validate organization exists
-		query := fmt.Sprintf("SELECT org_id FROM opa.organizations WHERE org_id = '%s' LIMIT 1",
-			escapeSQL(ctx.OrganizationID))
+		query := fmt.Sprintf("SELECT org_id FROM %s WHERE org_id = '%s' LIMIT 1",
+			hubTable("organizations"), escapeSQL(ctx.OrganizationID))
 		rows, err := queryClient.Query(query)
 		if err != nil || len(rows) == 0 {
 			http.Error(w, "organization not found", 404)
@@ -257,8 +257,8 @@ func TenantMiddleware(handler http.HandlerFunc, queryClient *ClickHouseQuery) ht
 		}
 
 		// Validate project exists and belongs to organization
-		query = fmt.Sprintf("SELECT project_id FROM opa.projects WHERE org_id = '%s' AND project_id = '%s' LIMIT 1",
-			escapeSQL(ctx.OrganizationID), escapeSQL(ctx.ProjectID))
+		query = fmt.Sprintf("SELECT project_id FROM %s WHERE org_id = '%s' AND project_id = '%s' LIMIT 1",
+			hubTable("projects"), escapeSQL(ctx.OrganizationID), escapeSQL(ctx.ProjectID))
 		rows, err = queryClient.Query(query)
 		if err != nil || len(rows) == 0 {
 			http.Error(w, "project not found", 404)

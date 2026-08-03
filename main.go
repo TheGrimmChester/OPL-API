@@ -24,6 +24,7 @@ func main() {
 	writer = NewClickHouseWriter(chURL, 100)
 	queryClient = NewClickHouseQuery(chURL)
 	ensureClickHouseDatabase(queryClient)
+	ensurePerfLabSchema(queryClient)
 	initFederationPeers()
 	initAuthMode()
 

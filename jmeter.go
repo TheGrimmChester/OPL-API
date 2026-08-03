@@ -66,12 +66,12 @@ func handlePerfScenarioGet(w http.ResponseWriter, r *http.Request, id string) {
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds,
 			headers_json, body, thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml, updated_at
-		FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 	if err != nil || len(rows) == 0 {
 		// Fallback without JMeter columns for pre-migration agents.
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json, updated_at
-			FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+			FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 		if err != nil || len(rows) == 0 {
 			http.Error(w, "not found", 404)
 			return
@@ -622,11 +622,11 @@ func loadScenarioMapReq(r *http.Request, id string) map[string]interface{} {
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body,
 			thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml
-		FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 	if err != nil || len(rows) == 0 {
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json
-			FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+			FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 		if err != nil || len(rows) == 0 {
 			return nil
 		}
@@ -651,11 +651,11 @@ func loadScenarioMapForTenant(id, org, proj string) map[string]interface{} {
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body,
 			thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml
-		FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 	if err != nil || len(rows) == 0 {
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json
-			FROM opa.load_scenarios FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+			FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
 		if err != nil || len(rows) == 0 {
 			return nil
 		}
@@ -782,7 +782,7 @@ func handlePerfScenarioGate(w http.ResponseWriter, r *http.Request, scenarioID s
 		return
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id, scenario_id, status, summary_json FROM opa.load_runs WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
+		SELECT id, scenario_id, status, summary_json FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
 	if err != nil || len(rows) == 0 {
 		http.Error(w, "run not found", 404)
 		return
@@ -818,7 +818,7 @@ func handlePerfRunGate(w http.ResponseWriter, r *http.Request, runID string) {
 		return
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id, scenario_id, status, summary_json FROM opa.load_runs WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
+		SELECT id, scenario_id, status, summary_json FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
 	if err != nil || len(rows) == 0 {
 		http.Error(w, "not found", 404)
 		return
@@ -934,7 +934,7 @@ func handlePerfRunSamples(w http.ResponseWriter, r *http.Request, runID string) 
 		return
 	}
 	owned, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id FROM opa.load_runs WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
+		SELECT id FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
 	if err != nil || len(owned) == 0 {
 		http.Error(w, "not found", 404)
 		return
@@ -946,12 +946,12 @@ func handlePerfRunSamples(w http.ResponseWriter, r *http.Request, runID string) 
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT run_id, ts, latency_ms, status_code, ok, url, step_name
-		FROM opa.load_run_samples WHERE run_id = '%s'%s
+		FROM ` + chTable("load_run_samples") + ` WHERE run_id = '%s'%s
 		ORDER BY ts ASC LIMIT 2000`, escapeSQL(runID), scope))
 	if err != nil {
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT run_id, ts, latency_ms, status_code, ok, url
-			FROM opa.load_run_samples WHERE run_id = '%s'%s
+			FROM ` + chTable("load_run_samples") + ` WHERE run_id = '%s'%s
 			ORDER BY ts ASC LIMIT 2000`, escapeSQL(runID), scope))
 	}
 	if err != nil {

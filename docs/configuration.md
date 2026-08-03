@@ -11,3 +11,5 @@
 | `CLICKHOUSE_DB` | Product database (default `opl`). Alias: `CLICKHOUSE_DATABASE` |
 | `PEER_OPA_URL` | Optional OPA hub URL for load-run correlation |
 | `OPL_PUBLIC_URL` | Public URL for this product |
+
+Product load tables (`load_scenarios`, `load_runs`, `load_run_samples`) are qualified with `CLICKHOUSE_DB` (default `opl`). Shared tenant directory tables (`organizations`, `projects`, `api_keys`, `federation_peers`) stay in the hub database `opa`.

@@ -291,13 +291,10 @@ func NewClickHouseQueryDB(url, database string) *ClickHouseQuery {
 	}
 }
 
-// rewriteSQL maps legacy opa.<table> qualifiers to the configured product database.
+// rewriteSQL is a no-op. Product SQL must use chTable(); hub/tenant SQL must use hubTable().
+// A blanket opa.→product rewrite incorrectly remapped shared hub tables (projects, api_keys).
 func (q *ClickHouseQuery) rewriteSQL(query string) string {
-	db := q.database
-	if db == "" || db == "opa" {
-		return query
-	}
-	return strings.ReplaceAll(query, "opa.", db+".")
+	return query
 }
 
 // Query executes a query and returns results
