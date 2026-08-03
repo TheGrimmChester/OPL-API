@@ -2,12 +2,12 @@ package main
 
 import (
 	"crypto/rand"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
+	openauth "github.com/TheGrimmChester/open-auth-go"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -54,19 +54,11 @@ type AuthHandler struct {
 }
 
 func (ah *AuthHandler) VerifyToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	}, jwt.WithValidMethods([]string{"HS256"}))
+	uc, err := openauth.ParseUserJWT(tokenString, jwtSecret)
 	if err != nil {
 		return nil, err
 	}
-	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		return claims, nil
-	}
-	return nil, fmt.Errorf("invalid token")
+	return &Claims{Username: uc.Username, Role: uc.Role, RegisteredClaims: uc.RegisteredClaims}, nil
 }
 
 func AuthMiddleware(handler http.HandlerFunc, requiredRole string) http.HandlerFunc {
@@ -106,4 +98,3 @@ func hasPermission(userRole, requiredRole string) bool {
 	roleHierarchy := map[string]int{"viewer": 1, "editor": 2, "admin": 3}
 	return roleHierarchy[userRole] >= roleHierarchy[requiredRole]
 }
-
