@@ -1,13 +1,26 @@
-# OPA Perf Lab
+# OPL-API
 
-Owns load scenarios, runs, HAR/XHR/JMX import, and Docker JMeter engine.
+Go API for **Open Perf Lab** — load scenarios, runs, HAR/JMX import, and Docker JMeter engine.
 
 | Port (smoke) | Service |
 |---|---|
-| **8092** | This service |
-| 8080 | OPA-Agent |
-| 8091 | OPA-AI-Orchestrator |
+| **8092** | `opl-api` |
+| 8080 | `opa-hub` / `opa-agent` |
+| 8091 | `ora-api` |
+| 8093 | `osa-api` |
 
-**Shared:** ClickHouse (`CLICKHOUSE_URL`), JWT (`JWT_SECRET` — same secret as Agent).
+**Shared when co-deployed:** ClickHouse (`CLICKHOUSE_URL`), user JWT (`JWT_SECRET`).
 
-Dashboard `/api/perf/*` routes here (via `VITE_PERF_LAB_URL` or nginx path proxy).
+**Not here:** APM UI (**OPA**), review (**ORA**), AppSec (**OSA**).
+
+## Documentation
+
+See [docs/index.md](docs/index.md).
+
+## Build
+
+```bash
+go build -o opl-api .
+```
+
+Image tags: `opl-api:smoke` (laptop) · `opl-api:nas` (production / NAS only).
