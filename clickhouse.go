@@ -21,6 +21,7 @@ const maxInFlightInserts = 8
 // ClickHouseWriter handles batch writes to ClickHouse
 type ClickHouseWriter struct {
 	url       string
+	database  string // product DB (ora | osa | opl | opa)
 	bufMu     sync.Mutex
 	buf       bytes.Buffer
 	fullBuf   bytes.Buffer
@@ -34,10 +35,19 @@ type ClickHouseWriter struct {
 	sem chan struct{}
 }
 
-// NewClickHouseWriter creates a new ClickHouse writer
+// NewClickHouseWriter creates a new ClickHouse writer (legacy default DB "opa").
 func NewClickHouseWriter(url string, batchSize int) *ClickHouseWriter {
+	return NewClickHouseWriterDB(url, clickHouseDatabase(), batchSize)
+}
+
+// NewClickHouseWriterDB creates a writer targeting a specific database.
+func NewClickHouseWriterDB(url, database string, batchSize int) *ClickHouseWriter {
+	if database == "" {
+		database = "opa"
+	}
 	return &ClickHouseWriter{
 		url:       url,
+		database:  database,
 		batchSize: batchSize,
 		sem:       make(chan struct{}, maxInFlightInserts),
 		client: &http.Client{
@@ -55,7 +65,7 @@ func NewClickHouseWriter(url string, batchSize int) *ClickHouseWriter {
 	}
 }
 
-// insert POSTs data as a single INSERT into opa.<table>, with bounded retries
+// insert POSTs data as a single INSERT into <database>.<table>, with bounded retries
 // and exponential backoff. It always fully drains and closes the response body
 // so the underlying keep-alive connection can be reused. It returns true only
 // on a confirmed HTTP 200; on final failure it logs loudly (never silent).
@@ -63,7 +73,11 @@ func (w *ClickHouseWriter) insert(table string, data []byte) bool {
 	if len(data) == 0 {
 		return true
 	}
-	endpoint := strings.TrimRight(w.url, "/") + "/?query=INSERT%20INTO%20opa." + table + "%20FORMAT%20JSONEachRow"
+	db := w.database
+	if db == "" {
+		db = "opa"
+	}
+	endpoint := strings.TrimRight(w.url, "/") + "/?query=INSERT%20INTO%20" + db + "." + table + "%20FORMAT%20JSONEachRow"
 	backoff := 100 * time.Millisecond
 	const attempts = 3
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -255,20 +269,40 @@ func (w *ClickHouseWriter) Flush() {
 
 // ClickHouseQuery handles queries to ClickHouse
 type ClickHouseQuery struct {
-	url    string
-	client *http.Client
+	url      string
+	database string
+	client   *http.Client
 }
 
-// NewClickHouseQuery creates a new ClickHouse query client
+// NewClickHouseQuery creates a new ClickHouse query client (product DB from env).
 func NewClickHouseQuery(url string) *ClickHouseQuery {
-	return &ClickHouseQuery{
-		url:    url,
-		client: &http.Client{Timeout: 30 * time.Second},
+	return NewClickHouseQueryDB(url, clickHouseDatabase())
+}
+
+// NewClickHouseQueryDB creates a query client targeting a specific database.
+func NewClickHouseQueryDB(url, database string) *ClickHouseQuery {
+	if database == "" {
+		database = "opa"
 	}
+	return &ClickHouseQuery{
+		url:      url,
+		database: database,
+		client:   &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// rewriteSQL maps legacy opa.<table> qualifiers to the configured product database.
+func (q *ClickHouseQuery) rewriteSQL(query string) string {
+	db := q.database
+	if db == "" || db == "opa" {
+		return query
+	}
+	return strings.ReplaceAll(query, "opa.", db+".")
 }
 
 // Query executes a query and returns results
 func (q *ClickHouseQuery) Query(query string) ([]map[string]interface{}, error) {
+	query = q.rewriteSQL(query)
 	queryUpper := strings.ToUpper(query)
 	if !strings.Contains(queryUpper, "FORMAT") {
 		query = strings.TrimSpace(query) + " FORMAT JSONEachRow"
@@ -347,6 +381,7 @@ func (q *ClickHouseQuery) Query(query string) ([]map[string]interface{}, error) 
 
 // Execute executes a query without returning results
 func (q *ClickHouseQuery) Execute(query string) error {
+	query = q.rewriteSQL(query)
 	baseURL := strings.TrimRight(q.url, "/")
 	reqURL, err := url.Parse(baseURL)
 	if err != nil {
