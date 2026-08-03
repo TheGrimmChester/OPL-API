@@ -1,4 +1,4 @@
-module github.com/opa/opa-perf-lab
+module github.com/TheGrimmChester/opl-api
 
 go 1.25.0
 
