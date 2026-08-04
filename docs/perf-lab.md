@@ -16,10 +16,13 @@ production execution engine.
 - **Without configured peers, fan-out is local-sample-only** — responses say so; do not claim live peers.
 - **Multi-peer fan-out ≠ multi-cloud commercial load grid** — better than one runner, still not a public load cloud.
 - Container worker scale (`workers` / `OPA_JMETER_WORKERS`) splits VUs across N JMeter containers on the same Perf-Lab host.
-- **Scenario `datasets` are stored, not executed.** Inline CSV lands in `data.csv` next to the plan
-  (`jmeter_engine.go:586`) but no generator emits a CSV Data Set element, so a generated plan sends `${var}`
-  literally and dispatch raises no warning. See the dataset entry in
-  [jmeter-perf.md](jmeter-perf.md#honesty) before relying on parameterised scenarios.
+- **Scenario `datasets` bind to the executed plan.** Inline CSV is written to `data.csv` next to the plan
+  (`jmeter_engine.go:589`) **and** the generated plan carries a matching CSV Data Set element
+  (`jmeter_datasets.go:317`; `syncJMXCSVDataSet` at `:378` back-fills plans stored before the engine emitted the
+  element, and raw imported JMX), so `${column}` tokens bind at run time. Parse problems are returned as
+  `warnings` and dispatch reports `dataset_injected` rather than failing quietly. A dataset that points at an
+  external `filename` with no inline rows stays **runner-local** — the file must exist where the engine runs.
+  See [jmeter-perf.md](jmeter-perf.md#honesty).
 - `opl-orchestrator` dispatches scheduled runs and reaps finished ones; `opl-api` still dispatches run
   containers and runs its own schedule tick. Both share the lease table, so running both does not double-fire
   (see [architecture.md](architecture.md)).
