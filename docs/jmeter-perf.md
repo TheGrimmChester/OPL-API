@@ -5,9 +5,19 @@ Visual scenario builder in the Dashboard generates Apache JMeter `.jmx`. Runs ex
 ## Honesty
 
 - JMeter-compatible designer; users do **not** need to know JMeter — Design tab builds steps and Agent stores `jmx_xml`.
-- JMX import is best-effort for HTTP samplers, timers, extractors, CSV, classic thread groups, and nested If/While/Loop/Transaction controllers when present.
+- JMX import is best-effort for HTTP samplers, timers, extractors, CSV Data Sets, classic thread groups, and nested If/While/Loop/Transaction controllers when present.
+- **Datasets do not reach the executed test.** A scenario's inline CSV is written to `data.csv` beside
+  `plan.jmx` (`jmeter_engine.go:554-563`, `:586`), but none of the plan generators emit a CSV Data Set element —
+  `CSVDataSet` appears only in the import parser (`jmeter.go:110`, `:137`, `:176-180`) and nowhere in
+  `jmeter_engine.go` or `jmeter_tree.go`. A generated plan therefore sends `${var}` literally, and **nothing
+  warns**: dispatch does not check for unbound variables. The `variableNames`, `delimiter`, and `recycle`
+  fields accepted on `datasets` are stored and round-tripped by the importer only; they are never applied.
+  One narrow exception: a scenario imported from a plan file reuses its stored `jmx_xml` verbatim
+  (`jmeter_engine.go:485`, `:542`) unless `curve_mode=arrivals` forces regeneration, so a CSV Data Set already
+  present in that file survives — but its `filename` still points wherever the original author put it, not at
+  `data.csv`. Treat parameterisation as unimplemented until a generator emits the element.
 - Federation fan-out ≠ multi-region load cloud.
-- Not a full plugin marketplace / Arrivals ThreadGroup / Playwright hybrid VU product.
+- Not a full plugin marketplace; no real-browser hybrid VU engine.
 - Generated/simple scenarios enforce URL policy (no private/metadata/decimal hosts) before validate/dispatch.
 - **Raw JMX** may still hit arbitrary hosts via `HTTPSamplerProxy` even when script/OS samplers are blocked — treat imported JMX as trusted admin input.
 - SLA gate is fail-closed; do not trust client-posted run `status` alone — use `/gate`.
@@ -52,7 +62,7 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 
 ## APIs
 
-- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), datasets, sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
+- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), `datasets` (**stored only — see Honesty above**), sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
 - `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`; nested controller tree preserved when parseable
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
@@ -78,7 +88,7 @@ OPA_PERF_ALLOW_NODE_FALLBACK=1 OPA_PERF_RUNNER=exec node scripts/load-runner.mjs
 
 ## Out of scope
 
-Full JMeter plugin fidelity, multi-cloud public generators, Playwright hybrid VUs, auto-fix PRs, JVM/.NET agents, Kubernetes Job runner (interface reserved).
+Full JMeter plugin fidelity, multi-cloud public generators, real-browser hybrid VUs, auto-fix pull requests, JVM/.NET agents, Kubernetes Job runner (interface reserved).
 
 ## Security notes
 
