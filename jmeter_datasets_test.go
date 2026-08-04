@@ -93,7 +93,7 @@ func TestArrivalsPlanEmitsSingleCSVDataSet(t *testing.T) {
 		{DelaySec: 10, RampSec: 10, Arrivals: 5},
 	}
 	jmx := generateJMXArrivalsFromUpsert("arr", "http://node-app:3000/", "GET", "",
-		json.RawMessage(csvSteps), segs, 20, ds)
+		json.RawMessage(csvSteps), segs, 20, ds, nil)
 	if got := strings.Count(jmx, "<CSVDataSet"); got != 1 {
 		t.Fatalf("want 1 CSVDataSet for all segments, got %d\n%s", got, jmx)
 	}

@@ -54,7 +54,7 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 
 ## APIs
 
-- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), `datasets` (**stored only — see Honesty above**), sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
+- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), `datasets` (**stored only — see Honesty above**), sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments). `fragment` steps are reusable definitions and `include` / `link` steps reference them by name with optional `params`; the response carries `fragment_references[]` saying per reference whether the plan emitted a module reference or fell back to an inline copy. A `rendezvous` step (or `schedule.rendezvous`) emits a synchronising timer — see [perf-lab.md](perf-lab.md#reusable-journey-modules).
 - `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`; nested controller tree preserved when parseable
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors

@@ -552,6 +552,12 @@ func perfScenarioKnownVars(sc map[string]interface{}, d *perfCSVDataset) map[str
 					}
 				}
 			}
+			// Fragment inputs bind the tokens the reused journey reads.
+			if names, _ := perfStepParams(st); len(names) > 0 {
+				for _, n := range names {
+					known[n] = true
+				}
+			}
 			walk(stepChildren(st))
 		}
 	}
