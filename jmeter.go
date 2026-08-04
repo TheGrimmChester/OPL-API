@@ -66,7 +66,11 @@ func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
 	case "duplicate":
 		handlePerfScenarioDuplicate(w, r, id)
 	case "schedule":
-		handlePerfScenarioSchedule(w, r, id)
+		sub := ""
+		if len(parts) > 2 {
+			sub = parts[2]
+		}
+		handlePerfScenarioSchedule(w, r, id, sub)
 	case "trends":
 		handlePerfScenarioTrends(w, r, id)
 	default:
