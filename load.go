@@ -144,7 +144,6 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 	if body.VUs <= 0 {
 		body.VUs = 10
 	}
-	body.VUs = clampPerfVUs(body.VUs)
 	if body.DurationSeconds <= 0 {
 		body.DurationSeconds = 60
 	}
@@ -180,9 +179,31 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 	if len(schedule) == 0 {
 		schedule = json.RawMessage(`{}`)
 	}
+	schedMap := map[string]interface{}{}
+	_ = json.Unmarshal(schedule, &schedMap)
+	if curve := parseCurveFromSchedule(schedMap); len(curve) > 0 {
+		peak, dur, _ := applyLoadCurveToSchedule(curve, schedMap)
+		if peak > 0 && body.VUs <= 0 {
+			body.VUs = peak
+		}
+		if dur > 0 && body.DurationSeconds <= 0 {
+			body.DurationSeconds = dur
+		}
+		if b, err := json.Marshal(schedMap); err == nil {
+			schedule = b
+		}
+	}
+	if curveModeFromSchedule(schedMap) == "arrivals" {
+		body.VUs = clampPerfArrivals(body.VUs)
+		if body.VUs <= 0 {
+			body.VUs = 1
+		}
+	} else {
+		body.VUs = clampPerfVUs(body.VUs)
+	}
 	jmx := body.JMXXML
-	if strings.TrimSpace(jmx) == "" {
-		jmx = generateJMXFromUpsert(body.Name, body.TargetURL, nz(body.Method, "GET"), body.Body, body.VUs, body.DurationSeconds, steps)
+	if strings.TrimSpace(jmx) == "" || curveModeFromSchedule(schedMap) == "arrivals" {
+		jmx = generateJMXFromUpsertEx(body.Name, body.TargetURL, nz(body.Method, "GET"), body.Body, body.VUs, body.DurationSeconds, steps, schedMap)
 	}
 	if jmxContainsUnsafeElements(jmx) {
 		http.Error(w, "jmx_xml contains unsafe JMeter elements (script/OS samplers); set OPA_PERF_ALLOW_UNSAFE_JMX=1 to override", 400)
@@ -238,8 +259,9 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 			if peak > 0 && body.VUs <= 0 {
 				body.VUs = peak
 			} else if peak > 0 {
-				// Prefer explicit VUs, but extend duration from curve when longer.
-				_ = peak
+				if curveModeFromSchedule(resolvedSched) == "arrivals" && body.VUs <= 0 {
+					body.VUs = peak
+				}
 			}
 			if dur > 0 {
 				resolvedSched["duration_seconds"] = dur
@@ -263,13 +285,20 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 		if vus <= 0 {
 			vus = 10
 		}
-		if body.Profile == "soak" && vus < 5 {
-			vus = 5
+		if curveModeFromSchedule(resolvedSched) != "arrivals" {
+			if body.Profile == "soak" && vus < 5 {
+				vus = 5
+			}
+			if body.Profile == "spike" && vus < 50 {
+				vus = 50
+			}
+			vus = clampPerfVUs(vus)
+		} else {
+			vus = clampPerfArrivals(vus)
+			if vus <= 0 {
+				vus = 1
+			}
 		}
-		if body.Profile == "spike" && vus < 50 {
-			vus = 50
-		}
-		vus = clampPerfVUs(vus)
 		peerResults := []map[string]interface{}{}
 		fanoutHonesty := "Docker JMeter containers by default; federation fan-out ≠ multi-region load cloud."
 		if body.Fanout {

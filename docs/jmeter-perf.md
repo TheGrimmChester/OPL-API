@@ -57,7 +57,7 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
 - `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` (triage) / `.../gate` / `.../archive` / `.../duplicate` / `.../schedule`
-- `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike; custom accepts `schedule.curve`
+- `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike; custom accepts `schedule.curve` with `curve_mode=vus|arrivals`
 - `POST /api/perf/runs` — `{scenario_id, dispatch, engine, fanout, profile|policy, workers, schedule}`
 - `POST /api/perf/runs/import-jtl` — offline JTL → run + samples
 - `POST /api/perf/runs/{id}/metrics` — admin or runner token; server recomputes pass/fail via SLA

@@ -7,7 +7,7 @@
 - Validate auto-correlation: `correlation_suggestions[]` (token/CSRF/Bearer heuristics) alongside triage cards.
 - Restore archived scenarios: `POST .../unarchive`; list `?archived=1`.
 - Visual editor depth: If / While / Loop controllers in steps → JMX (`IfController` / `WhileController` / `LoopController`) with nested hashTrees; JMX import preserves controller nesting on round-trip.
-- Custom load curve: `schedule_json.curve` points (`t`/`vus`) resolve via load-policies custom path → peak VUs + duration + ramp for ThreadGroup (honesty: not arrivals-accurate).
+- Custom load curve: `schedule_json.curve` with `curve_mode=vus|arrivals`. VU mode → peak/ramp/duration ThreadGroup; arrivals mode → open-model start segments (one journey per arrival, rate-shaped). Caps via `OPA_PERF_MAX_ARRIVALS` / `OPA_PERF_MAX_ARRIVAL_RATE`.
 - Lab ops: scenario soft-archive + duplicate; `GET /api/perf/load-policies`; run runners live status; per-step stats + report (`?format=csv`); `POST /api/perf/runs/import-jtl`; validate triage (`pass` + `triage[]`); light `schedule_json` scheduler; instrumentation honesty for public vs compose demo hosts.
 - JMeter visual editor backend: nested `children` on steps → TransactionController / HTTPSamplerProxy nested hashTrees; `flattenScenarioSteps` for validate.
 - Auth: adopt Open-Auth-Go per-user project ACLs (`project_ids` / `EnforceProjectACL` on Gate middleware). Restricted JWTs get **403** on non-member `X-Project-ID`; role `admin` stays unrestricted. No second membership store — hub-minted claims only.
