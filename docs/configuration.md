@@ -21,7 +21,24 @@
 | `OPL_RUN_EMAIL_FROM` | Optional From override (defaults to `OPA_SMTP_FROM`, then `OPA_SMTP_USER`) |
 | `OPA_SMTP_HOST` / `OPA_SMTP_PORT` / `OPA_SMTP_USER` / `OPA_SMTP_PASS` / `OPA_SMTP_FROM` | SMTP relay for the email channel, shared with the edge agent alert email. Without `OPA_SMTP_HOST` the recipients are recorded as `logged` (intentional no-send), never dropped. |
 
-Product load tables (`load_scenarios`, `load_runs`, `load_run_samples`, `report_templates`, `run_notifications`) are qualified with `CLICKHOUSE_DB` (default `opl`). Shared tenant directory tables (`organizations`, `projects`, `api_keys`, `federation_peers`) stay in the hub database `opa`.
+### Scheduler and orchestrator
+
+| Variable | Description |
+|----------|-------------|
+| `ORCHESTRATOR_LISTEN_ADDR` | `opl-orchestrator` listen address (default `:8097`) |
+| `OPA_PERF_SCHEDULER_DISABLE` | `1` disables the schedule tick in whichever process reads it (both `opl-api` and `opl-orchestrator` honour it) |
+| `OPA_PERF_SCHEDULER_TICK_SEC` | `opl-api` tick interval (default 60, floor 15) |
+| `OPL_ORCHESTRATOR_TICK_SEC` | `opl-orchestrator` dispatch tick interval (default 30, floor 5) |
+| `OPL_ORCHESTRATOR_DISPATCH_DISABLE` | `1` leaves the orchestrator serving state endpoints without firing schedules |
+| `OPL_ORCHESTRATOR_REAP_DISABLE` | `1` disables the run reaper; runs then stay `running` until something else closes them |
+| `OPL_ORCHESTRATOR_REAP_TICK_SEC` | Reaper tick interval (default 60, floor 5) |
+| `OPL_SCHEDULER_OWNER` | Pins this process's lease identity (default `<role>/<host>/<pid>-<rand>`). Two processes must never share one value |
+| `OPL_SCHEDULER_LEASE_SEC` | Lease TTL (default 300). Must exceed the tick interval, and bounds how long a dead owner blocks an occurrence |
+| `OPL_SCHEDULER_LEASE_SETTLE_MS` | Arbitration settle window (default 2000). **`0` disables the single-fire guarantee under contention** — only safe with exactly one scheduler |
+| `OPL_RUN_REAP_GRACE_SEC` | Minimum age before a `running` run is reap-eligible (default 120) |
+| `OPL_RUN_MAX_SEC` | Hard deadline after which a `running` run is closed as `error` (default 7200; `0` disables deadline reaping) |
+
+Product load tables (`load_scenarios`, `load_runs`, `load_run_samples`, `report_templates`, `run_notifications`, `load_schedule_state`, `load_schedule_leases`, `load_schedule_fires`) are qualified with `CLICKHOUSE_DB` (default `opl`). Shared tenant directory tables (`organizations`, `projects`, `api_keys`, `federation_peers`) stay in the hub database `opa`.
 
 ### Terminal-run notifications
 
