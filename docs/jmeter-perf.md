@@ -52,14 +52,16 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 
 ## APIs
 
-- `POST /api/perf/scenarios/upsert` — steps, datasets, sla, schedule, optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
+- `POST /api/perf/scenarios/upsert` — steps (optional nested `children`), datasets, sla, schedule, optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
 - `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
-- `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` / `.../gate`
-- `POST /api/perf/runs` — `{scenario_id, dispatch, engine, fanout, profile, workers}`
+- `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` (triage) / `.../gate` / `.../archive` / `.../duplicate` / `.../schedule`
+- `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike
+- `POST /api/perf/runs` — `{scenario_id, dispatch, engine, fanout, profile|policy, workers}`
+- `POST /api/perf/runs/import-jtl` — offline JTL → run + samples
 - `POST /api/perf/runs/{id}/metrics` — admin or runner token; server recomputes pass/fail via SLA
-- `GET /api/perf/runs/{id}/samples?since=` · `.../gate`
+- `GET /api/perf/runs/{id}/samples?since=` · `.../gate` · `.../runners` · `.../steps` · `.../report?format=csv`
 
 ## Scale
 

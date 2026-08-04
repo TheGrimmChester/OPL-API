@@ -457,3 +457,44 @@ func initialLoadRunStatus(wantDispatch bool, dispatchInfo map[string]interface{}
 func httpStatusOK2xx(code int) bool {
 	return code >= 200 && code < 300
 }
+
+// neverInstrumentedHosts never emit OPA spans / load_run_id tags — Open traces stay empty.
+var neverInstrumentedHosts = []string{
+	"example.com", "example.org", "example.net",
+	"httpbin.org", "httpbingo.org", "postman-echo.com",
+	"jsonplaceholder.typicode.com", "reqres.in",
+	"google.com", "www.google.com", "cloudflare.com",
+}
+
+// likelyInstrumentedHosts are compose-demo service names that ship with OPA instrumentation.
+var likelyInstrumentedHosts = []string{
+	"node-app", "java-app", "python-app", "dotnet-app", "go-app", "php-app",
+}
+
+// perfInstrumentationHonesty explains whether Open traces / load_run_id correlation can work.
+// Public demo hosts and uninstrumented apps never yield spans — do not imply otherwise.
+func perfInstrumentationHonesty(targetURL string) (likelyInstrumented bool, honesty string) {
+	raw := strings.TrimSpace(strings.ToLower(targetURL))
+	if raw == "" {
+		return false, "No target_url — OPA correlation needs an instrumented app that records X-OPA-Load-Run-Id / baggage load_run_id on spans."
+	}
+	host := raw
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		host = strings.ToLower(u.Hostname())
+	} else {
+		// bare host:port/path
+		host = strings.Split(strings.TrimPrefix(strings.TrimPrefix(raw, "https://"), "http://"), "/")[0]
+		host = strings.Split(host, ":")[0]
+	}
+	for _, bad := range neverInstrumentedHosts {
+		if host == bad || strings.HasSuffix(host, "."+bad) {
+			return false, "Target host is not OPA-instrumented — Open traces filtered by load_run_id will be empty. Use an instrumented service (compose default: http://node-app:3000/hello)."
+		}
+	}
+	for _, good := range likelyInstrumentedHosts {
+		if host == good || strings.HasPrefix(host, good+".") || strings.Contains(raw, "://"+good) || strings.Contains(raw, "://"+good+":") {
+			return true, "Target looks like a compose demo app — expect tags.load_run_id on spans when the OPA agent is ingesting that service."
+		}
+	}
+	return false, "OPA correlation requires the target app to be instrumented (propagate X-OPA-Load-Run-Id / baggage load_run_id onto spans). Uninstrumented hosts never yield traces in Open traces."
+}

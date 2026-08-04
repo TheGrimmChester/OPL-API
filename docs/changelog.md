@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- JMeter visual editor backend: nested `children` on steps → TransactionController / HTTPSamplerProxy nested hashTrees; `flattenScenarioSteps` for validate.
+- Lab ops: scenario soft-archive + duplicate; `GET /api/perf/load-policies`; run runners live status; per-step stats + report (`?format=csv`); `POST /api/perf/runs/import-jtl`; validate triage (`pass` + `triage[]`); light `schedule_json` scheduler; instrumentation honesty for public vs compose demo hosts.
 - Run lifecycle: `POST /api/perf/runs` writes `created` when undispatched and `failed` when dispatch errors (no more stuck `running`); `POST /api/perf/runs/{id}/cancel`.
 - SLA gate JSON includes `pass` alongside `ok`/`status`.
 - Docs: tenant headers required for `GET /api/perf/scenarios` and `GET /api/perf/runs` when auth is on; NAS curl examples in interop/perf-lab.
