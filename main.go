@@ -27,6 +27,7 @@ func main() {
 	ensurePerfLabSchema(queryClient)
 	initFederationPeers()
 	initAuthMode()
+	startPerfScheduler()
 
 	authRequired := authRequiredEnv()
 	setAuthEnforced(authRequired)

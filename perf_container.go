@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,6 +52,167 @@ type PerfContainerHandle struct {
 
 // defaultPerfContainerRunner is the process-wide runner (Docker by default).
 var defaultPerfContainerRunner PerfContainerRunner = DockerRunner{}
+
+// In-memory registry of dispatched containers for live status / cancel stop.
+type runRunnerState struct {
+	Containers []string
+	Mode       string
+	Image      string
+	Workers    int
+	StartedAt  time.Time
+}
+
+var (
+	runRunnersMu sync.RWMutex
+	runRunners   = map[string]*runRunnerState{}
+)
+
+func registerRunContainers(runID string, names []string, mode, image string, workers int) {
+	if runID == "" || len(names) == 0 {
+		return
+	}
+	cp := append([]string(nil), names...)
+	runRunnersMu.Lock()
+	runRunners[runID] = &runRunnerState{
+		Containers: cp, Mode: mode, Image: image, Workers: workers, StartedAt: time.Now().UTC(),
+	}
+	runRunnersMu.Unlock()
+}
+
+func lookupRunContainers(runID string) *runRunnerState {
+	runRunnersMu.RLock()
+	defer runRunnersMu.RUnlock()
+	st := runRunners[runID]
+	if st == nil {
+		return nil
+	}
+	cp := *st
+	cp.Containers = append([]string(nil), st.Containers...)
+	return &cp
+}
+
+func clearRunContainers(runID string) {
+	runRunnersMu.Lock()
+	delete(runRunners, runID)
+	runRunnersMu.Unlock()
+}
+
+// dockerContainerSnapshot inspects one container by name (best-effort).
+func dockerContainerSnapshot(name string) map[string]interface{} {
+	out := map[string]interface{}{
+		"name": name, "engine": "docker", "found": false, "status": "unknown",
+	}
+	if strings.TrimSpace(name) == "" {
+		out["error"] = "empty name"
+		return out
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		out["error"] = "docker CLI not found"
+		out["honesty"] = "Live container inspect needs docker on the opl-api host (compose mounts docker.sock)."
+		return out
+	}
+	cmd := exec.Command("docker", "inspect", "--format",
+		"{{.Id}}|{{.State.Status}}|{{.State.Running}}|{{.State.StartedAt}}|{{.State.FinishedAt}}|{{.State.ExitCode}}|{{.Config.Image}}",
+		name)
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		out["status"] = "not_found"
+		out["error"] = strings.TrimSpace(string(b))
+		if out["error"] == "" {
+			out["error"] = err.Error()
+		}
+		out["honesty"] = "Container gone (docker run --rm) or never started — check run status/samples."
+		return out
+	}
+	parts := strings.Split(strings.TrimSpace(string(b)), "|")
+	if len(parts) < 7 {
+		out["error"] = "unexpected inspect format"
+		out["raw"] = strings.TrimSpace(string(b))
+		return out
+	}
+	running := strings.EqualFold(parts[2], "true")
+	out["found"] = true
+	out["id"] = truncateStr(parts[0], 12)
+	out["status"] = parts[1]
+	out["running"] = running
+	out["started_at"] = parts[3]
+	out["finished_at"] = parts[4]
+	out["exit_code"] = atoiDefault(parts[5], 0)
+	out["image"] = parts[6]
+	return out
+}
+
+// parseDockerInspectLine is a pure helper for tests (same format as docker inspect --format above).
+func parseDockerInspectLine(name, line string) map[string]interface{} {
+	out := map[string]interface{}{
+		"name": name, "engine": "docker", "found": false, "status": "unknown",
+	}
+	parts := strings.Split(strings.TrimSpace(line), "|")
+	if len(parts) < 7 {
+		out["error"] = "unexpected inspect format"
+		out["raw"] = strings.TrimSpace(line)
+		return out
+	}
+	running := strings.EqualFold(parts[2], "true")
+	out["found"] = true
+	out["id"] = truncateStr(parts[0], 12)
+	out["status"] = parts[1]
+	out["running"] = running
+	out["started_at"] = parts[3]
+	out["finished_at"] = parts[4]
+	out["exit_code"] = atoiDefault(parts[5], 0)
+	out["image"] = parts[6]
+	return out
+}
+
+// stopRunContainers best-effort docker stop for cancel.
+func stopRunContainers(runID string) []map[string]interface{} {
+	st := lookupRunContainers(runID)
+	if st == nil || len(st.Containers) == 0 {
+		return nil
+	}
+	results := make([]map[string]interface{}, 0, len(st.Containers))
+	for _, name := range st.Containers {
+		entry := map[string]interface{}{"name": name, "stopped": false}
+		if _, err := exec.LookPath("docker"); err != nil {
+			entry["error"] = "docker CLI not found"
+			results = append(results, entry)
+			continue
+		}
+		cmd := exec.Command("docker", "stop", "--time", "5", name)
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			entry["error"] = strings.TrimSpace(string(b))
+			if entry["error"] == "" {
+				entry["error"] = err.Error()
+			}
+		} else {
+			entry["stopped"] = true
+			entry["output"] = strings.TrimSpace(string(b))
+		}
+		results = append(results, entry)
+	}
+	clearRunContainers(runID)
+	return results
+}
+
+// containerNamesFromAny normalizes dispatchInfo["containers"] (typed or JSON-decoded).
+func containerNamesFromAny(v interface{}) []string {
+	switch t := v.(type) {
+	case []string:
+		return append([]string(nil), t...)
+	case []interface{}:
+		out := make([]string, 0, len(t))
+		for _, x := range t {
+			if s, ok := x.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
 
 // DockerRunner launches JMeter via the docker CLI (compose stack mounts docker.sock).
 type DockerRunner struct{}

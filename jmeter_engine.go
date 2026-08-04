@@ -83,63 +83,71 @@ func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, s
 }
 
 func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
+	appendStepJMXIndent(b, step, i, "        ")
+}
+
+func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int, indent string) {
 	typ := fmt.Sprint(step["type"])
 	if typ == "" || typ == "<nil>" {
 		typ = "http"
 	}
 	name := nz(fmt.Sprint(step["name"]), fmt.Sprintf("step-%d", i+1))
+	kids := stepChildren(step)
 	switch typ {
 	case "extract":
 		expr := fmt.Sprint(step["expression"])
 		vname := fmt.Sprint(step["var"])
 		engine := fmt.Sprint(step["engine"])
 		if engine == "jsonpath" || strings.HasPrefix(expr, "$.") {
-			b.WriteString(fmt.Sprintf(`        <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname=%q enabled="true">
-          <stringProp name="JSONPostProcessor.referenceNames">%s</stringProp>
-          <stringProp name="JSONPostProcessor.jsonPathExprs">%s</stringProp>
-          <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
-        </JSONPostProcessor>
-        <hashTree/>`+"\n", xmlEscape(name), xmlEscape(vname), xmlEscape(expr)))
+			b.WriteString(fmt.Sprintf(`%s<JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname=%q enabled="true">
+%s  <stringProp name="JSONPostProcessor.referenceNames">%s</stringProp>
+%s  <stringProp name="JSONPostProcessor.jsonPathExprs">%s</stringProp>
+%s  <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+%s</JSONPostProcessor>
+%s<hashTree/>`+"\n", indent, xmlEscape(name), indent, xmlEscape(vname), indent, xmlEscape(expr), indent, indent, indent))
 		} else {
-			b.WriteString(fmt.Sprintf(`        <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor" testname=%q enabled="true">
-          <stringProp name="RegexExtractor.refname">%s</stringProp>
-          <stringProp name="RegexExtractor.regex">%s</stringProp>
-          <stringProp name="RegexExtractor.template">$1$</stringProp>
-          <stringProp name="RegexExtractor.match_number">1</stringProp>
-        </RegexExtractor>
-        <hashTree/>`+"\n", xmlEscape(name), xmlEscape(vname), xmlEscape(expr)))
+			b.WriteString(fmt.Sprintf(`%s<RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor" testname=%q enabled="true">
+%s  <stringProp name="RegexExtractor.refname">%s</stringProp>
+%s  <stringProp name="RegexExtractor.regex">%s</stringProp>
+%s  <stringProp name="RegexExtractor.template">$1$</stringProp>
+%s  <stringProp name="RegexExtractor.match_number">1</stringProp>
+%s</RegexExtractor>
+%s<hashTree/>`+"\n", indent, xmlEscape(name), indent, xmlEscape(vname), indent, xmlEscape(expr), indent, indent, indent, indent))
 		}
 	case "assert":
 		if st, ok := step["status"]; ok {
-			b.WriteString(fmt.Sprintf(`        <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled="true">
-          <collectionProp name="Asserion.test_strings">
-            <stringProp name="0">%v</stringProp>
-          </collectionProp>
-          <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
-          <boolProp name="Assertion.assume_success">false</boolProp>
-          <intProp name="Assertion.test_type">8</intProp>
-        </ResponseAssertion>
-        <hashTree/>`+"\n", xmlEscape(name), st))
+			b.WriteString(fmt.Sprintf(`%s<ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled="true">
+%s  <collectionProp name="Asserion.test_strings">
+%s    <stringProp name="0">%v</stringProp>
+%s  </collectionProp>
+%s  <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+%s  <boolProp name="Assertion.assume_success">false</boolProp>
+%s  <intProp name="Assertion.test_type">8</intProp>
+%s</ResponseAssertion>
+%s<hashTree/>`+"\n", indent, xmlEscape(name), indent, indent, st, indent, indent, indent, indent, indent, indent))
 		}
 		if contains, ok := step["body_contains"].(string); ok && contains != "" {
-			b.WriteString(fmt.Sprintf(`        <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled="true">
-          <collectionProp name="Asserion.test_strings">
-            <stringProp name="0">%s</stringProp>
-          </collectionProp>
-          <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
-          <intProp name="Assertion.test_type">2</intProp>
-        </ResponseAssertion>
-        <hashTree/>`+"\n", xmlEscape(name+" body"), xmlEscape(contains)))
+			b.WriteString(fmt.Sprintf(`%s<ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled="true">
+%s  <collectionProp name="Asserion.test_strings">
+%s    <stringProp name="0">%s</stringProp>
+%s  </collectionProp>
+%s  <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+%s  <intProp name="Assertion.test_type">2</intProp>
+%s</ResponseAssertion>
+%s<hashTree/>`+"\n", indent, xmlEscape(name+" body"), indent, indent, xmlEscape(contains), indent, indent, indent, indent, indent))
 		}
-	case "transaction":
-		b.WriteString(fmt.Sprintf(`        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname=%q enabled="true">
-          <boolProp name="TransactionController.includeTimers">false</boolProp>
-        </TransactionController>
-        <hashTree/>`+"\n", xmlEscape(name)))
+	case "container", "transaction":
+		b.WriteString(fmt.Sprintf(`%s<TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname=%q enabled="true">
+%s  <boolProp name="TransactionController.includeTimers">false</boolProp>
+%s</TransactionController>
+%s<hashTree>`+"\n", indent, xmlEscape(name), indent, indent, indent))
+		for j, child := range kids {
+			appendStepJMXIndent(b, child, j, indent+"  ")
+		}
+		b.WriteString(indent + "</hashTree>\n")
 	default: // http
 		method := nz(fmt.Sprint(step["method"]), "GET")
 		urlStr := fmt.Sprint(step["url"])
-		// UI selector metadata (css/xpath) — correlation only; emitted as XML comment.
 		if selRaw, ok := step["selector"]; ok {
 			sel := strings.TrimSpace(fmt.Sprint(selRaw))
 			if sel != "" && sel != "<nil>" {
@@ -161,8 +169,8 @@ func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
 						action = as
 					}
 				}
-				b.WriteString(fmt.Sprintf("        <!-- opa-ui type=%s selector=%s page=%s action=%s -->\n",
-					xmlCommentSafe(stype), xmlCommentSafe(sel), xmlCommentSafe(page), xmlCommentSafe(action)))
+				b.WriteString(fmt.Sprintf("%s<!-- opa-ui type=%s selector=%s page=%s action=%s -->\n",
+					indent, xmlCommentSafe(stype), xmlCommentSafe(sel), xmlCommentSafe(page), xmlCommentSafe(action)))
 			}
 		}
 		domain, path, proto, port := "127.0.0.1", "/", "http", ""
@@ -196,26 +204,29 @@ func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
 		bodyXML := ""
 		if body != "" {
 			bodyXML = fmt.Sprintf(`
-          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
-            <collectionProp name="Arguments.arguments">
-              <elementProp name="" elementType="HTTPArgument">
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">%s</stringProp>
-                <stringProp name="Argument.metadata">=</stringProp>
-              </elementProp>
-            </collectionProp>
-          </elementProp>`, xmlEscape(body))
+%s  <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+%s  <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+%s    <collectionProp name="Arguments.arguments">
+%s      <elementProp name="" elementType="HTTPArgument">
+%s        <boolProp name="HTTPArgument.always_encode">false</boolProp>
+%s        <stringProp name="Argument.value">%s</stringProp>
+%s        <stringProp name="Argument.metadata">=</stringProp>
+%s      </elementProp>
+%s    </collectionProp>
+%s  </elementProp>`, indent, indent, indent, indent, indent, indent, xmlEscape(body), indent, indent, indent, indent)
 		}
-		b.WriteString(fmt.Sprintf(`        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname=%q enabled="true">
-          <stringProp name="HTTPSampler.domain">%s</stringProp>
-          <stringProp name="HTTPSampler.port">%s</stringProp>
-          <stringProp name="HTTPSampler.protocol">%s</stringProp>
-          <stringProp name="HTTPSampler.path">%s</stringProp>
-          <stringProp name="HTTPSampler.method">%s</stringProp>
-          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>%s
-        </HTTPSamplerProxy>
-        <hashTree/>`+"\n", xmlEscape(name), xmlEscape(domain), xmlEscape(port), xmlEscape(proto), xmlEscape(path), xmlEscape(method), bodyXML))
+		b.WriteString(fmt.Sprintf(`%s<HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname=%q enabled="true">
+%s  <stringProp name="HTTPSampler.domain">%s</stringProp>
+%s  <stringProp name="HTTPSampler.port">%s</stringProp>
+%s  <stringProp name="HTTPSampler.protocol">%s</stringProp>
+%s  <stringProp name="HTTPSampler.path">%s</stringProp>
+%s  <stringProp name="HTTPSampler.method">%s</stringProp>
+%s  <boolProp name="HTTPSampler.follow_redirects">true</boolProp>%s
+%s</HTTPSamplerProxy>
+%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(domain), indent, xmlEscape(port), indent, xmlEscape(proto), indent, xmlEscape(path), indent, xmlEscape(method), indent, bodyXML, indent, indent))
+		for j, child := range kids {
+			appendStepJMXIndent(b, child, j, indent+"  ")
+		}
 		think := 0
 		if t, ok := asFloat(step["think_ms"]); ok {
 			think = int(t)
@@ -224,11 +235,12 @@ func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
 			think = int(t)
 		}
 		if think > 0 {
-			b.WriteString(fmt.Sprintf(`        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think" enabled="true">
-          <stringProp name="ConstantTimer.delay">%d</stringProp>
-        </ConstantTimer>
-        <hashTree/>`+"\n", think))
+			b.WriteString(fmt.Sprintf(`%s  <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think" enabled="true">
+%s    <stringProp name="ConstantTimer.delay">%d</stringProp>
+%s  </ConstantTimer>
+%s  <hashTree/>`+"\n", indent, indent, think, indent, indent))
 		}
+		b.WriteString(indent + "</hashTree>\n")
 	}
 }
 
@@ -395,6 +407,9 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 		mergedSummary["mode"] = mode
 		mergedSummary["workers"] = nWorkers
 		mergedSummary["image"] = image
+		if len(containerNames) > 0 {
+			mergedSummary["containers"] = containerNames
+		}
 		if len(mergedSamples) > 500 {
 			mergedSamples = mergedSamples[:500]
 		}
@@ -428,6 +443,7 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 				writer.insertAsync("load_run_samples", append(samp, '\n'))
 			}
 		}
+		clearRunContainers(runID)
 	}()
 
 	return map[string]interface{}{
