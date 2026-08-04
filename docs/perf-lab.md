@@ -62,7 +62,14 @@ production execution engine.
 
 ### Custom load curve
 
-`schedule_json.curve`: `[{ "t": 0, "vus": 0 }, { "t": 30, "vus": 20 }, …]`. On run/schedule, OPL maps peak VUs + duration + `ramp_seconds` onto classic ThreadGroup (honesty: not arrivals-accurate injectors).
+`schedule_json.curve` with `curve_mode`:
+
+| Mode | Points | Injector |
+|------|--------|----------|
+| `vus` (default) | `[{ "t": 0, "vus": 0 }, { "t": 30, "vus": 20 }, …]` | Classic ThreadGroup peak VUs + duration + `ramp_seconds` (closed model) |
+| `arrivals` | `[{ "t": 0, "rate": 0 }, { "t": 30, "rate": 2 }, …]` (`rate` = arrivals/sec) | Stock ThreadGroup **open-model segments**: trapezoid-integrated starts, `loops=1`, `ThreadGroup.delay` + ramp per segment |
+
+Caps: `OPA_PERF_MAX_ARRIVALS` (default `OPA_PERF_MAX_VUS×20`, max 10000), `OPA_PERF_MAX_ARRIVAL_RATE` (default 100/s). Honesty strings on run/schedule responses distinguish concurrent-VU approximation from arrivals-accurate open model.
 
 ### Light scheduler
 

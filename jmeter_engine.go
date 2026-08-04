@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,50 @@ import (
 // generateJMXFromUpsert builds a Classic ThreadGroup JMX from steps or a single URL.
 // Used when the visual builder saves without raw jmx_xml — users never need to write JMX.
 func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage) string {
+	return generateJMXFromUpsertEx(name, targetURL, method, body, vus, dur, stepsJSON, nil)
+}
+
+// generateJMXFromUpsertEx builds JMX; when sched has curve_mode=arrivals, emits open-model segments.
+func generateJMXFromUpsertEx(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, sched map[string]interface{}) string {
+	if curveModeFromSchedule(sched) == "arrivals" {
+		curve := parseCurveFromSchedule(sched)
+		if len(curve) > 0 {
+			_, _, _ = applyArrivalsCurveToSchedule(curve, sched)
+		}
+		segs := arrivalSegmentsFromSched(sched)
+		if len(segs) > 0 {
+			return generateJMXArrivalsFromUpsert(name, targetURL, method, body, stepsJSON, segs, dur)
+		}
+	}
+	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON)
+}
+
+func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
+	if sched == nil {
+		return nil
+	}
+	raw, ok := sched["arrival_segments"]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var segs []arrivalSegment
+	if json.Unmarshal(b, &segs) != nil {
+		return nil
+	}
+	out := segs[:0]
+	for _, s := range segs {
+		if s.Arrivals > 0 && s.RampSec > 0 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage) string {
 	var steps []map[string]interface{}
 	_ = json.Unmarshal(stepsJSON, &steps)
 	if len(steps) == 0 {
@@ -32,21 +77,7 @@ func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, s
 		dur = 60
 	}
 	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">` + "\n")
-	b.WriteString("  <hashTree>\n")
-	b.WriteString(`    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="` + xmlEscape(nz(name, "OPA Plan")) + `" enabled="true"/>` + "\n")
-	b.WriteString("    <hashTree>\n")
-	// User Defined Variables for load_run_id correlation
-	b.WriteString(`      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="OPA Vars" enabled="true">
-        <collectionProp name="Arguments.arguments">
-          <elementProp name="LOAD_RUN_ID" elementType="Argument">
-            <stringProp name="Argument.name">LOAD_RUN_ID</stringProp>
-            <stringProp name="Argument.value">${__P(LOAD_RUN_ID,)}</stringProp>
-          </elementProp>
-        </collectionProp>
-      </Arguments>
-      <hashTree/>` + "\n")
+	writeJMXPlanOpen(&b, name)
 	b.WriteString(fmt.Sprintf(`      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="VUs" enabled="true">
         <stringProp name="ThreadGroup.num_threads">%d</stringProp>
         <stringProp name="ThreadGroup.ramp_time">10</stringProp>
@@ -58,29 +89,108 @@ func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, s
         </elementProp>
       </ThreadGroup>`+"\n", vus, dur))
 	b.WriteString("      <hashTree>\n")
-	// Header manager for load_run_id → APM
-	b.WriteString(`        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="OPA Correlation Headers" enabled="true">
-          <collectionProp name="HeaderManager.headers">
-            <elementProp name="" elementType="Header">
-              <stringProp name="Header.name">X-OPA-Load-Run-Id</stringProp>
-              <stringProp name="Header.value">${LOAD_RUN_ID}</stringProp>
-            </elementProp>
-            <elementProp name="" elementType="Header">
-              <stringProp name="Header.name">baggage</stringProp>
-              <stringProp name="Header.value">load_run_id=${LOAD_RUN_ID}</stringProp>
-            </elementProp>
-          </collectionProp>
-        </HeaderManager>
-        <hashTree/>` + "\n")
+	writeJMXCorrelationHeaders(&b, "        ")
 	frags := indexFragmentsByName(steps)
 	for i, step := range steps {
 		appendStepJMXIndexed(&b, step, i, "        ", frags)
 	}
 	b.WriteString("      </hashTree>\n")
+	writeJMXPlanClose(&b)
+	return b.String()
+}
+
+// generateJMXArrivalsFromUpsert emits one stock ThreadGroup per arrival segment (open model, loops=1).
+func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJSON json.RawMessage, segs []arrivalSegment, curveDur int) string {
+	var steps []map[string]interface{}
+	_ = json.Unmarshal(stepsJSON, &steps)
+	if len(steps) == 0 {
+		steps = []map[string]interface{}{{
+			"type": "http", "name": "Request", "method": method, "url": targetURL, "body": body,
+		}}
+	}
+	journeyBudget := 120
+	if curveDur > 0 {
+		journeyBudget = clampPerfDuration(curveDur + 60)
+	}
+	var b strings.Builder
+	writeJMXPlanOpen(&b, name)
+	frags := indexFragmentsByName(steps)
+	for si, seg := range segs {
+		if seg.Arrivals <= 0 {
+			continue
+		}
+		ramp := seg.RampSec
+		if ramp < 1 {
+			ramp = 1
+		}
+		delay := seg.DelaySec
+		if delay < 0 {
+			delay = 0
+		}
+		// Duration is relative to TG start after delay: cover ramp + journey budget.
+		tgDur := ramp + journeyBudget
+		tgName := fmt.Sprintf("Arrivals %d-%ds", delay, delay+ramp)
+		b.WriteString(fmt.Sprintf(`      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname=%q enabled="true">
+        <stringProp name="ThreadGroup.num_threads">%d</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">%d</stringProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">%d</stringProp>
+        <stringProp name="ThreadGroup.delay">%d</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+      </ThreadGroup>`+"\n", xmlEscape(tgName), seg.Arrivals, ramp, tgDur, delay))
+		b.WriteString("      <hashTree>\n")
+		if si == 0 {
+			writeJMXCorrelationHeaders(&b, "        ")
+		}
+		for i, step := range steps {
+			appendStepJMXIndexed(&b, step, i, "        ", frags)
+		}
+		b.WriteString("      </hashTree>\n")
+	}
+	writeJMXPlanClose(&b)
+	return b.String()
+}
+
+func writeJMXPlanOpen(b *strings.Builder, name string) {
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(`<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">` + "\n")
+	b.WriteString("  <hashTree>\n")
+	b.WriteString(`    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="` + xmlEscape(nz(name, "OPA Plan")) + `" enabled="true"/>` + "\n")
+	b.WriteString("    <hashTree>\n")
+	b.WriteString(`      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="OPA Vars" enabled="true">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="LOAD_RUN_ID" elementType="Argument">
+            <stringProp name="Argument.name">LOAD_RUN_ID</stringProp>
+            <stringProp name="Argument.value">${__P(LOAD_RUN_ID,)}</stringProp>
+          </elementProp>
+        </collectionProp>
+      </Arguments>
+      <hashTree/>` + "\n")
+}
+
+func writeJMXPlanClose(b *strings.Builder) {
 	b.WriteString("    </hashTree>\n")
 	b.WriteString("  </hashTree>\n")
 	b.WriteString("</jmeterTestPlan>\n")
-	return b.String()
+}
+
+func writeJMXCorrelationHeaders(b *strings.Builder, indent string) {
+	b.WriteString(indent + `<HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="OPA Correlation Headers" enabled="true">
+` + indent + `  <collectionProp name="HeaderManager.headers">
+` + indent + `    <elementProp name="" elementType="Header">
+` + indent + `      <stringProp name="Header.name">X-OPA-Load-Run-Id</stringProp>
+` + indent + `      <stringProp name="Header.value">${LOAD_RUN_ID}</stringProp>
+` + indent + `    </elementProp>
+` + indent + `    <elementProp name="" elementType="Header">
+` + indent + `      <stringProp name="Header.name">baggage</stringProp>
+` + indent + `      <stringProp name="Header.value">load_run_id=${LOAD_RUN_ID}</stringProp>
+` + indent + `    </elementProp>
+` + indent + `  </collectionProp>
+` + indent + `</HeaderManager>
+` + indent + `<hashTree/>` + "\n")
 }
 
 func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
@@ -385,17 +495,51 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 			}
 		}
 	}
-	vus = clampPerfVUs(vus)
+	schedMap := map[string]interface{}{}
+	if s := getString(sc, "schedule_json"); s != "" && s != "{}" {
+		_ = json.Unmarshal([]byte(s), &schedMap)
+	}
+	arrivalsMode := curveModeFromSchedule(schedMap) == "arrivals"
+	if arrivalsMode {
+		vus = clampPerfArrivals(vus)
+		if vus <= 0 {
+			vus = 1
+		}
+	} else {
+		vus = clampPerfVUs(vus)
+	}
 	nWorkers := perfJMeterWorkers(workers)
 	if nWorkers > vus {
 		nWorkers = vus
 	}
+	if nWorkers < 1 {
+		nWorkers = 1
+	}
 	dur := clampPerfDuration(int(getFloat64(sc, "duration_seconds")))
-	if strings.TrimSpace(jmx) == "" {
-		steps := json.RawMessage(stepsRaw)
-		if len(steps) == 0 {
-			steps = json.RawMessage(`[]`)
+	if curve := parseCurveFromSchedule(schedMap); len(curve) > 0 {
+		peak, cDur, _ := applyLoadCurveToSchedule(curve, schedMap)
+		if cDur > 0 {
+			dur = clampPerfDuration(cDur)
 		}
+		if peak > 0 && arrivalsMode {
+			vus = peak
+			if nWorkers > vus {
+				nWorkers = vus
+			}
+			if nWorkers < 1 {
+				nWorkers = 1
+			}
+		}
+	}
+	steps := json.RawMessage(stepsRaw)
+	if len(steps) == 0 {
+		steps = json.RawMessage(`[]`)
+	}
+	// Arrivals mode always regenerates open-model JMX from steps (ignore stale classic jmx_xml).
+	if arrivalsMode {
+		jmx = generateJMXFromUpsertEx(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
+			vus, dur, steps, schedMap)
+	} else if strings.TrimSpace(jmx) == "" {
 		jmx = generateJMXFromUpsert(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
 			vus, dur, steps)
 	}
@@ -427,7 +571,14 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return map[string]interface{}{"dispatched": false, "error": err.Error()}
 		}
-		workerJMX := rewriteJMXThreadCount(jmx, workerVUs[i])
+		workerJMX := jmx
+		if arrivalsMode && nWorkers > 1 {
+			workerSegs := scaleArrivalSegments(arrivalSegmentsFromSched(schedMap), workerVUs[i], vus)
+			workerJMX = generateJMXArrivalsFromUpsert(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
+				steps, workerSegs, dur)
+		} else if !arrivalsMode {
+			workerJMX = rewriteJMXThreadCount(jmx, workerVUs[i])
+		}
 		if err := os.WriteFile(filepath.Join(dir, "plan.jmx"), []byte(workerJMX), 0o600); err != nil {
 			return map[string]interface{}{"dispatched": false, "error": err.Error()}
 		}
@@ -567,6 +718,34 @@ func splitVUsAcrossWorkers(vus, workers int) []int {
 		if out[i] < 1 {
 			out[i] = 1
 		}
+	}
+	return out
+}
+
+// scaleArrivalSegments proportionally assigns segment arrivals to one worker's share of total.
+func scaleArrivalSegments(segs []arrivalSegment, workerShare, total int) []arrivalSegment {
+	if len(segs) == 0 || total <= 0 || workerShare <= 0 {
+		return nil
+	}
+	out := make([]arrivalSegment, 0, len(segs))
+	assigned := 0
+	for i, s := range segs {
+		n := int(math.Round(float64(s.Arrivals) * float64(workerShare) / float64(total)))
+		if i == len(segs)-1 {
+			n = workerShare - assigned
+		}
+		if n < 0 {
+			n = 0
+		}
+		assigned += n
+		if n == 0 {
+			continue
+		}
+		s.Arrivals = n
+		out = append(out, s)
+	}
+	if assigned < workerShare && len(out) > 0 {
+		out[len(out)-1].Arrivals += workerShare - assigned
 	}
 	return out
 }
