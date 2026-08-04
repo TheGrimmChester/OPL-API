@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	openhttp "github.com/TheGrimmChester/open-http-go"
+	opentenant "github.com/TheGrimmChester/open-tenant-go"
 	"log"
 	"net/http"
 	"os"
@@ -18,7 +20,7 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 }
 
 func escapeSQL(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
+	return opentenant.EscapeSQL(s)
 }
 
 func getString(row map[string]interface{}, key string) string {
@@ -185,25 +187,10 @@ func runLocalLoadSample(target, method string, vus, durSec int, loadRunID string
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
-		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Organization-ID, X-Project-ID")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return openhttp.MiddlewareCORS(next)
 }
 
 var _ = time.Time{}
-
 
 func nz(s, d string) string {
 	if strings.TrimSpace(s) != "" {
