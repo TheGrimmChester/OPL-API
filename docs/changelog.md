@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Correction (2026-08-04): entries below that mention CSV data sets or `${var}` rewriting describe **import and
+  storage**, not execution. No plan generator emits a CSV Data Set element (`CSVDataSet` occurs only in
+  `jmeter.go`, never in `jmeter_engine.go` / `jmeter_tree.go`), so a generated plan runs with `${var}` unbound
+  even though `data.csv` is written beside it (`jmeter_engine.go:586`), and dispatch issues no warning.
+  Original entries kept below as written.
 - Notification channels: terminal-run events now fan out to **webhook**, **chat** (incoming-webhook message payload via `OPL_RUN_CHAT_WEBHOOK_URL`) and **email** (SMTP via `OPL_RUN_EMAIL_TO` + the shared `OPA_SMTP_*` block). Same `OPL_RUN_NOTIFY_MODE` / `OPL_RUN_NOTIFY_STATUSES` / `OPL_RUN_WEBHOOK_SECRET` controls; `OPL_RUN_NOTIFY_CHANNELS` restricts the set. `/api/health` `run_notify.channels[]` describes each channel (`configured`, redacted `target`, `reason`) without secrets.
 - Notification history: every channel attempt is persisted to `opl.run_notifications` and served by `GET /api/perf/notifications` and `GET /api/perf/runs/{id}/notifications` (`sent` / `failed` / `logged` / `skipped` with a plain reason — an unconfigured channel is reported, never silently dropped). `POST /api/perf/notifications/test` (admin) fires a synthetic terminal event to verify wiring.
 - Report / trend templates: named, org+project-scoped layouts in `opl.report_templates` (`GET /api/perf/report-templates`, `POST .../upsert`, `GET/DELETE .../{id}`, `POST .../{id}/archive`). Exports accept `?template=<id>` on `runs/{id}/report`, `runs/{id}/bench-pack` and `scenarios/{id}/trends`; the applied layout (or the plain reason it was not applied) is echoed in the payload and the `X-OPL-Template` header.
