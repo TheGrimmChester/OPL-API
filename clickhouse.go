@@ -12,6 +12,7 @@ import (
 	"time"
 
 	openclickhouse "github.com/TheGrimmChester/open-clickhouse-go"
+	openlogger "github.com/TheGrimmChester/open-logger-go"
 )
 
 // maxInFlightInserts bounds concurrent async ClickHouse INSERTs so a stalled
@@ -83,7 +84,7 @@ func (w *ClickHouseWriter) insert(table string, data []byte) bool {
 	for attempt := 1; attempt <= attempts; attempt++ {
 		req, err := http.NewRequest("POST", endpoint, bytes.NewReader(data))
 		if err != nil {
-			LogError(err, "Failed to build ClickHouse INSERT request", map[string]interface{}{
+			openlogger.LogError(err, "Failed to build ClickHouse INSERT request", map[string]interface{}{
 				"table": table,
 			})
 			return false
@@ -91,7 +92,7 @@ func (w *ClickHouseWriter) insert(table string, data []byte) bool {
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := w.client.Do(req)
 		if err != nil {
-			LogError(err, "ClickHouse INSERT request failed", map[string]interface{}{
+			openlogger.LogError(err, "ClickHouse INSERT request failed", map[string]interface{}{
 				"table":   table,
 				"attempt": attempt,
 			})
@@ -99,7 +100,7 @@ func (w *ClickHouseWriter) insert(table string, data []byte) bool {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
-			LogError(nil, "ClickHouse INSERT returned non-200", map[string]interface{}{
+			openlogger.LogError(nil, "ClickHouse INSERT returned non-200", map[string]interface{}{
 				"table":       table,
 				"status_code": resp.StatusCode,
 				"body":        string(body),
@@ -116,7 +117,7 @@ func (w *ClickHouseWriter) insert(table string, data []byte) bool {
 		}
 	}
 	// All retries exhausted: the batch is dropped, but loudly (not silently).
-	LogError(nil, "ClickHouse INSERT failed after retries; dropping batch", map[string]interface{}{
+	openlogger.LogError(nil, "ClickHouse INSERT failed after retries; dropping batch", map[string]interface{}{
 		"table": table,
 		"bytes": len(data),
 	})
@@ -312,7 +313,7 @@ func (q *ClickHouseQuery) Query(query string) ([]map[string]interface{}, error) 
 	}
 	rows, err := q.ch.Query(query)
 	if err != nil {
-		LogError(err, "ClickHouse query failed", nil)
+		openlogger.LogError(err, "ClickHouse query failed", nil)
 		return nil, err
 	}
 	out := make([]map[string]interface{}, len(rows))
@@ -328,7 +329,7 @@ func (q *ClickHouseQuery) Execute(query string) error {
 		return fmt.Errorf("clickhouse query client not configured")
 	}
 	if err := q.ch.Exec(query); err != nil {
-		LogError(err, "ClickHouse Execute failed", nil)
+		openlogger.LogError(err, "ClickHouse Execute failed", nil)
 		return err
 	}
 	return nil
