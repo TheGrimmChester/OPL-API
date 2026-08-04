@@ -36,9 +36,11 @@ production execution engine.
 | `GET/POST /api/perf/scenarios` + upsert | Scenario CRUD (steps may include CSS/XPath selector metadata) |
 | `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
-| `POST /api/perf/runs` | Start run; optional `fanout`, `profile`, `workers`, `dispatch` |
+| `POST /api/perf/runs` | Start run; optional `fanout`, `profile`, `workers`, `dispatch`. Status is `running` only when an engine is dispatched; `created` when `dispatch:false`; `failed` when dispatch errors. |
+| `POST /api/perf/runs/{id}/cancel` | Admin — mark an in-flight run `cancelled` |
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
+| `GET /api/perf/runs/{id}/gate` | SLA gate (`ok` + `pass` booleans) |
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
 | `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
 

@@ -422,11 +422,36 @@ func evaluateSLAFailClosed(summary map[string]interface{}, sla map[string]interf
 
 func runStatusTerminal(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "completed", "passed", "failed", "error":
+	case "completed", "passed", "failed", "error", "cancelled", "canceled", "aborted":
 		return true
 	default:
 		return false
 	}
+}
+
+// initialLoadRunStatus chooses the ClickHouse status after POST /api/perf/runs.
+// Undispatched runs must not stay "running" forever; failed dispatch is terminal "failed".
+func initialLoadRunStatus(wantDispatch bool, dispatchInfo map[string]interface{}) (status, errMsg string) {
+	if !wantDispatch {
+		return "created", ""
+	}
+	if dispatchInfo != nil {
+		if ok, _ := dispatchInfo["dispatched"].(bool); ok {
+			return "running", ""
+		}
+		if fb, ok := dispatchInfo["node_fallback"].(map[string]interface{}); ok {
+			if ok2, _ := fb["dispatched"].(bool); ok2 {
+				return "running", ""
+			}
+			if e, _ := fb["error"].(string); strings.TrimSpace(e) != "" {
+				return "failed", strings.TrimSpace(e)
+			}
+		}
+		if e, _ := dispatchInfo["error"].(string); strings.TrimSpace(e) != "" {
+			return "failed", strings.TrimSpace(e)
+		}
+	}
+	return "failed", "dispatch did not start an engine"
 }
 
 func httpStatusOK2xx(code int) bool {
