@@ -9,7 +9,7 @@ Visual scenario builder in the Dashboard generates Apache JMeter `.jmx`. Runs ex
 - Scenario datasets emit a real `CSVDataSet`; a `filename` without inline rows stays **runner-local** — the file must exist where the engine runs.
 - Unbound-variable detection covers plain `${name}` references only; anything computed inside a JMeter function is opaque and use-before-define ordering is not checked.
 - Federation fan-out ≠ multi-region load cloud.
-- Not a full plugin marketplace / Arrivals ThreadGroup / Playwright hybrid VU product.
+- Not a full plugin marketplace; no real-browser hybrid VU engine.
 - Generated/simple scenarios enforce URL policy (no private/metadata/decimal hosts) before validate/dispatch.
 - **Raw JMX** may still hit arbitrary hosts via `HTTPSamplerProxy` even when script/OS samplers are blocked — treat imported JMX as trusted admin input.
 - SLA gate is fail-closed; do not trust client-posted run `status` alone — use `/gate`.
@@ -54,7 +54,7 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 
 ## APIs
 
-- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), datasets, sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
+- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), `datasets` (**stored only — see Honesty above**), sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
 - `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`; nested controller tree preserved when parseable
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
@@ -144,7 +144,7 @@ OPA_PERF_ALLOW_NODE_FALLBACK=1 OPA_PERF_RUNNER=exec node scripts/load-runner.mjs
 
 ## Out of scope
 
-Full JMeter plugin fidelity, multi-cloud public generators, Playwright hybrid VUs, auto-fix PRs, JVM/.NET agents, Kubernetes Job runner (interface reserved).
+Full JMeter plugin fidelity, multi-cloud public generators, real-browser hybrid VUs, auto-fix pull requests, JVM/.NET agents, Kubernetes Job runner (interface reserved).
 
 ## Security notes
 
