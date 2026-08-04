@@ -145,6 +145,52 @@ func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int,
 			appendStepJMXIndent(b, child, j, indent+"  ")
 		}
 		b.WriteString(indent + "</hashTree>\n")
+	case "if", "if_controller":
+		cond := nz(fmt.Sprint(step["condition"]), `${__jexl3(true)}`)
+		if cond == "<nil>" {
+			cond = `${__jexl3(true)}`
+		}
+		b.WriteString(fmt.Sprintf(`%s<IfController guiclass="IfControllerPanel" testclass="IfController" testname=%q enabled="true">
+%s  <stringProp name="IfController.condition">%s</stringProp>
+%s  <boolProp name="IfController.evaluateAll">false</boolProp>
+%s  <boolProp name="IfController.useExpression">true</boolProp>
+%s</IfController>
+%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(cond), indent, indent, indent, indent))
+		for j, child := range kids {
+			appendStepJMXIndent(b, child, j, indent+"  ")
+		}
+		b.WriteString(indent + "</hashTree>\n")
+	case "while", "while_controller":
+		cond := nz(fmt.Sprint(step["condition"]), `${__jexl3(false)}`)
+		if cond == "<nil>" {
+			cond = `${__jexl3(false)}`
+		}
+		b.WriteString(fmt.Sprintf(`%s<WhileController guiclass="WhileControllerGui" testclass="WhileController" testname=%q enabled="true">
+%s  <stringProp name="WhileController.condition">%s</stringProp>
+%s</WhileController>
+%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(cond), indent, indent))
+		for j, child := range kids {
+			appendStepJMXIndent(b, child, j, indent+"  ")
+		}
+		b.WriteString(indent + "</hashTree>\n")
+	case "loop", "loop_controller":
+		loops := 1
+		if n, ok := asFloat(step["loops"]); ok && int(n) > 0 {
+			loops = int(n)
+		}
+		forever := false
+		if v, ok := step["forever"].(bool); ok {
+			forever = v
+		}
+		b.WriteString(fmt.Sprintf(`%s<LoopController guiclass="LoopControlPanel" testclass="LoopController" testname=%q enabled="true">
+%s  <boolProp name="LoopController.continue_forever">%t</boolProp>
+%s  <stringProp name="LoopController.loops">%d</stringProp>
+%s</LoopController>
+%s<hashTree>`+"\n", indent, xmlEscape(name), indent, forever, indent, loops, indent, indent))
+		for j, child := range kids {
+			appendStepJMXIndent(b, child, j, indent+"  ")
+		}
+		b.WriteString(indent + "</hashTree>\n")
 	default: // http
 		method := nz(fmt.Sprint(step["method"]), "GET")
 		urlStr := fmt.Sprint(step["url"])
