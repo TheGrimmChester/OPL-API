@@ -18,7 +18,7 @@ func TestRenderReportPDF(t *testing.T) {
 			{"step_name": "Login", "samples": 50, "errors": 0, "error_rate": 0.0, "p50_ms": 30.0, "p95_ms": 90.0, "p99_ms": 110.0, "avg_ms": 40.0, "url": "/login"},
 		},
 	}
-	pdf := renderReportPDF(report)
+	pdf := renderReportPDF(report, nil)
 	if !bytes.HasPrefix(pdf, []byte("%PDF-1.4")) {
 		t.Fatalf("missing PDF header")
 	}
@@ -42,7 +42,7 @@ func TestRenderReportHTML(t *testing.T) {
 			{"step_name": "A", "samples": 1, "errors": 0, "error_rate": 0, "avg_ms": 1, "p50_ms": 1, "p95_ms": 1, "p99_ms": 1, "url": "/"},
 		},
 	}
-	html := string(renderReportHTML(report))
+	html := string(renderReportHTML(report, nil))
 	if !strings.Contains(html, "Open Perf Lab") || !strings.Contains(html, "run_html") {
 		t.Fatalf("bad html: %s", html[:min(200, len(html))])
 	}
@@ -54,7 +54,7 @@ func TestRenderReportHTML(t *testing.T) {
 func TestReportCSVBytes(t *testing.T) {
 	b := reportCSVBytes([]map[string]interface{}{
 		{"step_name": "X", "samples": 2, "errors": 1, "error_rate": 0.5, "avg_ms": 10, "p50_ms": 9, "p95_ms": 12, "p99_ms": 15, "min_ms": 8, "max_ms": 16, "url": "/x"},
-	})
+	}, nil)
 	s := string(b)
 	if !strings.HasPrefix(s, "step_name,") {
 		t.Fatalf("header: %q", s)
