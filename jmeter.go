@@ -792,9 +792,17 @@ func handlePerfScenarioGate(w http.ResponseWriter, r *http.Request, scenarioID s
 		return
 	}
 	runStatus := getString(rows[0], "status")
+	if strings.EqualFold(runStatus, "created") || strings.EqualFold(runStatus, "cancelled") ||
+		strings.EqualFold(runStatus, "canceled") || strings.EqualFold(runStatus, "aborted") {
+		writeJSON(w, map[string]interface{}{
+			"ok": false, "pass": false, "status": "failed", "run_id": runID, "scenario_id": scenarioID,
+			"reasons": []string{"run never executed (status=" + runStatus + ")"}, "run_status": runStatus,
+		})
+		return
+	}
 	if !runStatusTerminal(runStatus) {
 		writeJSON(w, map[string]interface{}{
-			"ok": false, "status": "running", "run_id": runID, "scenario_id": scenarioID,
+			"ok": false, "pass": false, "status": "running", "run_id": runID, "scenario_id": scenarioID,
 			"reasons": []string{"run not finished"}, "run_status": runStatus,
 		})
 		return
@@ -807,7 +815,7 @@ func handlePerfScenarioGate(w http.ResponseWriter, r *http.Request, scenarioID s
 		status = "failed"
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok": pass, "status": status, "run_id": runID, "scenario_id": scenarioID,
+		"ok": pass, "pass": pass, "status": status, "run_id": runID, "scenario_id": scenarioID,
 		"summary": summary, "sla": sla, "reasons": reasons, "run_status": runStatus,
 	})
 }
@@ -834,9 +842,17 @@ func handlePerfRunGate(w http.ResponseWriter, r *http.Request, runID string) {
 		}
 	}
 	runStatus := getString(rows[0], "status")
+	if strings.EqualFold(runStatus, "created") || strings.EqualFold(runStatus, "cancelled") ||
+		strings.EqualFold(runStatus, "canceled") || strings.EqualFold(runStatus, "aborted") {
+		writeJSON(w, map[string]interface{}{
+			"ok": false, "pass": false, "status": "failed", "run_id": runID, "scenario_id": scenarioID,
+			"reasons": []string{"run never executed (status=" + runStatus + ")"}, "run_status": runStatus,
+		})
+		return
+	}
 	if !runStatusTerminal(runStatus) {
 		writeJSON(w, map[string]interface{}{
-			"ok": false, "status": "running", "run_id": runID, "scenario_id": scenarioID,
+			"ok": false, "pass": false, "status": "running", "run_id": runID, "scenario_id": scenarioID,
 			"reasons": []string{"run not finished"}, "run_status": runStatus,
 		})
 		return
@@ -849,7 +865,7 @@ func handlePerfRunGate(w http.ResponseWriter, r *http.Request, runID string) {
 		status = "failed"
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok": pass, "status": status, "run_id": runID, "scenario_id": scenarioID,
+		"ok": pass, "pass": pass, "status": status, "run_id": runID, "scenario_id": scenarioID,
 		"summary": summary, "sla": sla, "reasons": reasons, "run_status": runStatus,
 	})
 }

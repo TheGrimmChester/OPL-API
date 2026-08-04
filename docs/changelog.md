@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Run lifecycle: `POST /api/perf/runs` writes `created` when undispatched and `failed` when dispatch errors (no more stuck `running`); `POST /api/perf/runs/{id}/cancel`.
+- SLA gate JSON includes `pass` alongside `ok`/`status`.
 - Docs: tenant headers required for `GET /api/perf/scenarios` and `GET /api/perf/runs` when auth is on; NAS curl examples in interop/perf-lab.
 - Auth via Open-Auth-Go `Gate` (delete local `auth.go` / `auth_local.go` duplicates).
 - Qualify Perf Lab tables with `CLICKHOUSE_DB` via `chTable()`; hub tenant tables use `hubTable()` (`opa`).
