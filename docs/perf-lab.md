@@ -49,7 +49,9 @@ production execution engine.
 | `POST /api/perf/runs/{id}/cancel` | Admin — mark cancelled + best-effort `docker stop` on registered workers |
 | `GET /api/perf/runs/{id}/runners` | Live `docker inspect` status for dispatched containers |
 | `GET /api/perf/runs/{id}/steps` | Per-label aggregates (avg/p95/error_rate) |
-| `GET /api/perf/runs/{id}/report` | Bench report JSON; `?format=csv` for CSV |
+| `GET /api/perf/runs/{id}/report` | Bench report JSON; `?format=csv|html|pdf` |
+| `GET /api/perf/runs/{id}/bench-pack` | ZIP bench pack (JSON + CSV + HTML + PDF + MANIFEST) |
+| `GET /api/perf/scenarios/{id}/trends` | Multi-run trend series (`points`, best/worst p95, SLA breaches); `?limit=` `?sla_p95_ms=` |
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
 | `GET /api/perf/runs/{id}/gate` | SLA gate (`ok` + `pass` booleans) |
