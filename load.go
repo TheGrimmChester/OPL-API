@@ -237,6 +237,34 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 		"ok": true, "id": id,
 		"honesty": "JMeter-compatible scenario; jmx_xml is source of truth for Docker JMeter runs. " + instr,
 	}
+	// Reusable journeys: report per reference whether the saved plan points at the shared
+	// fragment container or fell back to an inline copy of it.
+	var savedSteps []map[string]interface{}
+	_ = json.Unmarshal(steps, &savedSteps)
+	if fragRefs := perfFragmentRefs(savedSteps, body.Name); len(fragRefs) > 0 {
+		resp["fragment_references"] = fragRefs
+		resp["honesty"] = fmt.Sprint(resp["honesty"]) + " " + perfFragmentRefsHonesty(fragRefs)
+	}
+	if rv := perfRendezvousFromSchedule(schedMap); rv != nil {
+		_, placement := injectPlanRendezvous(savedSteps, rv)
+		resp["rendezvous"] = map[string]interface{}{
+			"group_size": rv.GroupSize, "timeout_ms": rv.TimeoutMS,
+			"scope": placement.Mode, "step": placement.Step, "note": placement.Note,
+		}
+		honest := fmt.Sprintf(" Synchronised burst: group size %d, timeout %dms, scope %s",
+			rv.GroupSize, rv.TimeoutMS, placement.Mode)
+		if placement.Step != "" {
+			honest += fmt.Sprintf(" (%s)", placement.Step)
+		}
+		if placement.Note != "" {
+			honest += " — " + placement.Note
+		}
+		resp["honesty"] = fmt.Sprint(resp["honesty"]) + honest + "."
+	}
+	if msgs := perfRendezvousTriage(savedSteps, body.VUs); len(msgs) > 0 {
+		resp["rendezvous_warnings"] = msgs
+		resp["honesty"] = fmt.Sprint(resp["honesty"]) + " " + strings.Join(msgs, " ")
+	}
 	if dataset != nil {
 		resp["dataset"] = dataset.summary()
 	}

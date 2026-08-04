@@ -124,7 +124,60 @@ Unknown widget/metric names are dropped on save, so an export never claims a wid
 
 ### Nested steps / visual editor backend
 
-`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). `include`/`link` expands a named fragment at validate/JMX emit. JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController` / disabled `GenericController` for fragments); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+
+### Reusable journey modules
+
+A `fragment` step is a definition, not part of the flow. Each one is hoisted to Test Plan level as a
+**disabled `TestFragmentController`** — one copy per plan, shared by every thread group including each
+arrivals segment — and each `include` / `link` step becomes a **`ModuleController`** whose
+`ModuleController.node_path` points at it. Edit the fragment once and every reference changes.
+
+The node path is the chain of node names from the tree root: `[plan, plan, fragment]`. JMeter skips entry 0
+(the tree root) and starts matching at index 1, so the Test Plan name has to be present or the whole path
+shifts by one and the reference resolves to nothing.
+
+`include` steps take `params` (a `{name: value}` object) so one fragment runs with different inputs per
+reference. The reference is then wrapped in a marked Simple Controller holding a `UserParameters`
+element with `per_iteration=false`, which is what keeps JMeter treating it as a pre-processor re-applied for
+the samplers in *that* reference's scope. (`per_iteration=true` would make it a loop-iteration listener
+firing at the top of the thread iteration, and one reference's values would win for all of them.) Param
+names count as bound variables, so a fragment reading `${user}` does not show up in `unbound_variables[]`.
+
+**Three cases fall back to expanding the referenced steps inline** — the pre-module behaviour — rather than
+emitting a reference:
+
+| Case | Mode | Emitted |
+| --- | --- | --- |
+| reference carries its own `children` | `inline_expansion` | those children, inline |
+| two fragments share the referenced name | `inline_expansion` | one of them, inline (a node path cannot pick one) |
+| no fragment carries that name | `unresolved` | nothing but a comment; validate **fails** |
+
+Which mode was used is reported per reference, never implied: `fragment_references[]` on the validate and
+upsert responses (`step`, `ref`, `mode`, `node_path`, `reason`, `params`) and spelled out in the `honesty`
+text. The emitted plan carries the same verdict as an `<!-- opl-include … mode=… reason=… -->` comment. An
+inline copy and a shared reference behave differently under load, so the distinction is never hidden.
+
+### Synchronised burst (rendezvous)
+
+A `rendezvous` step emits a **`SyncTimer`** (`groupSize`, `timeoutInMs`): threads park until the group fills,
+then fire together, which turns a designed spike into a simultaneous burst instead of a ramp. `group_size: 0`
+is JMeter's "every thread in the group".
+
+A JMeter timer is **scoped, not sequential** — it applies to every sampler under its parent. Put the step
+inside a single request to gate only that request; put it beside siblings to gate all of them.
+
+`schedule_json.rendezvous` (`{group_size, timeout_ms}`, or the `rendezvous_group_size` shorthand) is the
+plan-level form. It attaches the timer to the journey's **first request of its own** (depth-first, skipping
+fragment definitions) so the VU population starts the journey together rather than every request becoming a
+barrier. When the journey has no request of its own — a tree of nothing but module references — the timer
+falls back to thread-group level and the response says so, including which sampler ended up gated and
+whether any reference runs ahead of it.
+
+A group larger than the threads that will ever arrive never fills. With `timeout_ms: 0` (JMeter's default)
+those threads park for the whole run, so validate **fails** with a `rendezvous` triage entry instead of
+letting the run stall; with a timeout it reports that every thread waits the timeout out rather than
+bursting. The configured group size is emitted as-is — it is never quietly clamped to the VU count.
 
 ### Parameterised data
 
