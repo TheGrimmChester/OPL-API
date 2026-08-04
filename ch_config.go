@@ -69,7 +69,8 @@ func ensurePerfLabSchema(q *ClickHouseQuery) {
 			datasets_json String DEFAULT '{}',
 			sla_json String DEFAULT '{}',
 			schedule_json String DEFAULT '{}',
-			jmx_xml String DEFAULT ''
+			jmx_xml String DEFAULT '',
+			archived UInt8 DEFAULT 0
 		) ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY (organization_id, project_id, id)`,
 		`CREATE TABLE IF NOT EXISTS ` + db + `.load_runs (
@@ -104,5 +105,9 @@ func ensurePerfLabSchema(q *ClickHouseQuery) {
 		if err := q.Execute(s); err != nil {
 			log.Printf("perf schema: %v", err)
 		}
+	}
+	// Existing NAS tables may predate archived; ADD COLUMN is idempotent.
+	if err := q.Execute(`ALTER TABLE ` + db + `.load_scenarios ADD COLUMN IF NOT EXISTS archived UInt8 DEFAULT 0`); err != nil {
+		log.Printf("perf schema archived column: %v", err)
 	}
 }

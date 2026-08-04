@@ -18,6 +18,7 @@ func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, htt
 	authView("/api/perf/scenarios", handlePerfScenarios)
 	authView("/api/perf/runs", handlePerfRunsListOrCreate)
 	authView("/api/perf/runs/", handlePerfRunByID)
+	authView("/api/perf/load-policies", handlePerfLoadPolicies)
 	authAdmin("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
 	_ = mux
 }
@@ -46,14 +47,15 @@ func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := tenantScopeSQL(r, queryClient, "")
+	arch := scenarioArchivedAnd()
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, thresholds_json,
 			steps_json, datasets_json, sla_json, schedule_json,
 			length(jmx_xml) AS jmx_bytes, updated_at
-		FROM ` + chTable("load_scenarios") + ` FINAL WHERE 1=1%s
-		ORDER BY updated_at DESC LIMIT 100`, scope))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE 1=1%s%s
+		ORDER BY updated_at DESC LIMIT 100`, scope, arch))
 	if err != nil {
-		// Pre-migration 0032 fallback.
+		// Pre-archived-column or pre-migration fallback.
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, thresholds_json, updated_at
 			FROM ` + chTable("load_scenarios") + ` FINAL WHERE 1=1%s
@@ -65,7 +67,7 @@ func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]interface{}{
 		"scenarios": rows,
-		"honesty":   "Docker JMeter engine (default) — federation fan-out ≠ multi-region load cloud.",
+		"honesty":   "Docker JMeter engine (default) — federation fan-out ≠ multi-region load cloud. Archived scenarios are hidden.",
 		"engine":    strings.ToLower(envOr("OPA_PERF_ENGINE", "jmeter")),
 		"runner":    "docker",
 	})
@@ -185,14 +187,15 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 		"headers_json": string(headers), "body": body.Body, "thresholds_json": string(thresh),
 		"steps_json": string(steps), "datasets_json": string(datasets),
 		"sla_json": string(sla), "schedule_json": string(schedule), "jmx_xml": jmx,
-		"updated_at": now, "created_at": now,
+		"archived": 0, "updated_at": now, "created_at": now,
 	})
 	if writer != nil {
 		writer.insertAsync("load_scenarios", append(payload, '\n'))
 	}
+	_, instr := perfInstrumentationHonesty(body.TargetURL)
 	writeJSON(w, map[string]interface{}{
 		"ok": true, "id": id,
-		"honesty": "JMeter-compatible scenario; jmx_xml is source of truth for Docker JMeter runs.",
+		"honesty": "JMeter-compatible scenario; jmx_xml is source of truth for Docker JMeter runs. " + instr,
 	})
 }
 
@@ -205,13 +208,35 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 			ScenarioID string          `json:"scenario_id"`
 			VUs        int             `json:"vus"`
 			Fanout     bool            `json:"fanout"`
-			Profile    string          `json:"profile"` // soak|spike|ramp|""
+			Profile    string          `json:"profile"` // soak|spike|ramp|"" or smooth|sustained|stress
+			Policy     string          `json:"policy"`  // smooth|sustained|stress|custom
 			Dispatch   bool            `json:"dispatch"`
 			Engine     string          `json:"engine"` // jmeter|node
 			Workers    int             `json:"workers"` // JMeter container fan-out (VU scale)
 			Schedule   json.RawMessage `json:"schedule"`
 		}
 		_ = json.Unmarshal(raw, &body)
+		schedMap := map[string]interface{}{}
+		if len(body.Schedule) > 0 {
+			_ = json.Unmarshal(body.Schedule, &schedMap)
+		}
+		resolvedProfile, resolvedSched, policyHonesty := resolveLoadPolicy(body.Policy, body.Profile, schedMap)
+		body.Profile = resolvedProfile
+		curveHonesty := ""
+		if curve := parseCurveFromSchedule(resolvedSched); len(curve) > 0 {
+			peak, dur, h := applyLoadCurveToSchedule(curve, resolvedSched)
+			curveHonesty = h
+			if peak > 0 && body.VUs <= 0 {
+				body.VUs = peak
+			} else if peak > 0 {
+				// Prefer explicit VUs, but extend duration from curve when longer.
+				_ = peak
+			}
+			if dur > 0 {
+				resolvedSched["duration_seconds"] = dur
+			}
+		}
+		_ = resolvedSched
 		wantDispatch := body.Dispatch || strings.EqualFold(envOr("OPA_PERF_AUTO_DISPATCH", ""), "1")
 		if (wantDispatch || body.Fanout) && !perfRequireAdmin(w, r) {
 			return
@@ -286,10 +311,22 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 			dispatchInfo["tip"] = "Pass dispatch:true (admin) to spawn ephemeral JMeter Docker container(s)."
 		}
 		runStatus, runErr := initialLoadRunStatus(wantDispatch, dispatchInfo)
+		if names := containerNamesFromAny(dispatchInfo["containers"]); len(names) > 0 {
+			mode, _ := dispatchInfo["mode"].(string)
+			image, _ := dispatchInfo["image"].(string)
+			workers := int(getFloat64(dispatchInfo, "workers"))
+			registerRunContainers(id, names, mode, image, workers)
+		}
 		if runStatus != provisional && writer != nil {
 			summaryObj := map[string]interface{}{}
 			if runErr != "" {
 				summaryObj["dispatch_error"] = runErr
+			}
+			if names := containerNamesFromAny(dispatchInfo["containers"]); len(names) > 0 {
+				summaryObj["containers"] = names
+				summaryObj["mode"] = dispatchInfo["mode"]
+				summaryObj["image"] = dispatchInfo["image"]
+				summaryObj["workers"] = dispatchInfo["workers"]
 			}
 			sumBytes, _ := json.Marshal(summaryObj)
 			if len(sumBytes) == 0 {
@@ -302,16 +339,41 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 				"started_at": now, "finished_at": fix, "summary_json": string(sumBytes), "error": runErr,
 			})
 			writer.insertAsync("load_runs", append(fixPayload, '\n'))
+		} else if runStatus == "running" && writer != nil {
+			if names := containerNamesFromAny(dispatchInfo["containers"]); len(names) > 0 {
+				summaryObj := map[string]interface{}{
+					"containers": names, "mode": dispatchInfo["mode"],
+					"image": dispatchInfo["image"], "workers": dispatchInfo["workers"],
+					"policy": resolvedSched["policy"],
+				}
+				sumBytes, _ := json.Marshal(summaryObj)
+				fix := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+				fixPayload, _ := json.Marshal(map[string]interface{}{
+					"id": id, "organization_id": org, "project_id": proj,
+					"scenario_id": body.ScenarioID, "status": runStatus, "vus": vus,
+					"started_at": now, "finished_at": fix, "summary_json": string(sumBytes), "error": "",
+				})
+				writer.insertAsync("load_runs", append(fixPayload, '\n'))
+			}
+		}
+		fanoutHonesty = fanoutHonesty + " " + policyHonesty
+		if curveHonesty != "" {
+			fanoutHonesty = fanoutHonesty + " " + curveHonesty
+		}
+		_, targetHonesty := perfInstrumentationHonesty("")
+		if sc := loadScenarioMapReq(r, body.ScenarioID); sc != nil {
+			_, targetHonesty = perfInstrumentationHonesty(getString(sc, "target_url"))
 		}
 		writeJSON(w, map[string]interface{}{
-			"ok": true, "id": id, "load_run_id": id, "status": runStatus, "profile": body.Profile, "engine": engine,
+			"ok": true, "id": id, "load_run_id": id, "status": runStatus, "profile": body.Profile,
+			"policy": resolvedSched["policy"], "engine": engine,
 			"headers": map[string]string{
 				"X-OPA-Load-Run-Id": id,
 				"baggage":           "load_run_id=" + id,
 			},
 			"fanout_peers": peerResults,
 			"dispatch":     dispatchInfo,
-			"honesty":      fanoutHonesty,
+			"honesty":      strings.TrimSpace(fanoutHonesty + " " + targetHonesty),
 		})
 		return
 	}
@@ -358,6 +420,18 @@ func handlePerfRunByID(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) > 1 && parts[1] == "cancel" {
 		handlePerfRunCancel(w, r, id)
+		return
+	}
+	if len(parts) > 1 && parts[1] == "steps" {
+		handlePerfRunSteps(w, r, id)
+		return
+	}
+	if len(parts) > 1 && parts[1] == "report" {
+		handlePerfRunReport(w, r, id)
+		return
+	}
+	if len(parts) > 1 && parts[1] == "runners" {
+		handlePerfRunRunners(w, r, id)
 		return
 	}
 	if queryClient == nil {
@@ -418,7 +492,11 @@ func handlePerfRunCancel(w http.ResponseWriter, r *http.Request, id string) {
 		"summary_json": summary, "error": "cancelled by user",
 	})
 	writer.insertAsync("load_runs", append(payload, '\n'))
-	writeJSON(w, map[string]interface{}{"ok": true, "id": id, "status": "cancelled"})
+	stopped := stopRunContainers(id)
+	writeJSON(w, map[string]interface{}{
+		"ok": true, "id": id, "status": "cancelled", "containers_stopped": stopped,
+		"honesty": "Run marked cancelled; best-effort docker stop on registered JMeter workers.",
+	})
 }
 
 func handlePerfExportK6(w http.ResponseWriter, r *http.Request, scenarioOrRunID string) {

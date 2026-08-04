@@ -33,16 +33,33 @@ production execution engine.
 
 | Endpoint | Role |
 |----------|------|
-| `GET/POST /api/perf/scenarios` + upsert | Scenario CRUD (steps may include CSS/XPath selector metadata) |
+| `GET/POST /api/perf/scenarios` + upsert | Scenario CRUD (steps may include nested `children`, CSS/XPath selector metadata). List/get hide soft-archived rows. |
+| `DELETE` / `POST .../scenarios/{id}/archive` | Soft-archive (`archived=1`) |
+| `POST .../scenarios/{id}/duplicate` | Clone scenario (optional `{name}`) |
+| `POST .../scenarios/{id}/schedule` | Patch `schedule_json` (`enabled`, `every_minutes`, `daily_at`) |
+| `POST .../scenarios/{id}/validate` | 1 VU dry-run; `ok`/`pass` + `triage[]` (severity/hint) when steps fail |
 | `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
-| `POST /api/perf/runs` | Start run; optional `fanout`, `profile`, `workers`, `dispatch`. Status is `running` only when an engine is dispatched; `created` when `dispatch:false`; `failed` when dispatch errors. |
-| `POST /api/perf/runs/{id}/cancel` | Admin — mark an in-flight run `cancelled` |
+| `GET /api/perf/load-policies` | Presets: smooth→ramp, sustained→soak, stress→spike, custom |
+| `POST /api/perf/runs` | Start run; optional `fanout`, `profile`/`policy`, `workers`, `dispatch`. Status is `running` only when an engine is dispatched; `created` when `dispatch:false`; `failed` when dispatch errors. |
+| `POST /api/perf/runs/import-jtl` | Admin — import JMeter JTL → `load_runs` + samples |
+| `POST /api/perf/runs/{id}/cancel` | Admin — mark cancelled + best-effort `docker stop` on registered workers |
+| `GET /api/perf/runs/{id}/runners` | Live `docker inspect` status for dispatched containers |
+| `GET /api/perf/runs/{id}/steps` | Per-label aggregates (avg/p95/error_rate) |
+| `GET /api/perf/runs/{id}/report` | Bench report JSON; `?format=csv` for CSV |
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
 | `GET /api/perf/runs/{id}/gate` | SLA gate (`ok` + `pass` booleans) |
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
 | `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
+
+### Nested steps / visual editor backend
+
+`steps_json` may nest `children` under `transaction`/`container` and `http` (extract/assert). JMX emission opens nested `hashTree`s; validate flattens depth-first via `flattenScenarioSteps`.
+
+### Light scheduler
+
+`schedule_json`: `{ "enabled": true, "every_minutes": 60 }` or `{ "enabled": true, "daily_at": "02:30" }` (UTC). `startPerfScheduler` ticks in-process (disable with `OPA_PERF_SCHEDULER_DISABLE=1`).
 
 ### Tenant headers
 
