@@ -16,6 +16,12 @@ production execution engine.
 - **Without configured peers, fan-out is local-sample-only** — responses say so; do not claim live peers.
 - **Multi-peer fan-out ≠ multi-cloud commercial load grid** — better than one runner, still not a public load cloud.
 - Container worker scale (`workers` / `OPA_JMETER_WORKERS`) splits VUs across N JMeter containers on the same Perf-Lab host.
+- **Scenario `datasets` are stored, not executed.** Inline CSV lands in `data.csv` next to the plan
+  (`jmeter_engine.go:586`) but no generator emits a CSV Data Set element, so a generated plan sends `${var}`
+  literally and dispatch raises no warning. See the dataset entry in
+  [jmeter-perf.md](jmeter-perf.md#honesty) before relying on parameterised scenarios.
+- `opl-orchestrator` exposes `/api/health` only; `opl-api` dispatches run containers and runs the schedule tick
+  itself (see [architecture.md](architecture.md)).
 
 ## Profiles
 
