@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Correction (2026-08-04): entries below that mention CSV data sets or `${var}` rewriting describe **import and
+  storage**, not execution. No plan generator emits a CSV Data Set element (`CSVDataSet` occurs only in
+  `jmeter.go`, never in `jmeter_engine.go` / `jmeter_tree.go`), so a generated plan runs with `${var}` unbound
+  even though `data.csv` is written beside it (`jmeter_engine.go:586`), and dispatch issues no warning.
+  Original entries kept below as written.
 - Bench report formats: `GET .../runs/{id}/report?format=html|pdf` (JSON/CSV unchanged); `GET .../runs/{id}/bench-pack` ZIP (JSON+CSV+HTML+PDF+MANIFEST).
 - Scenario trends: `GET .../scenarios/{id}/trends` (multi-run points, best/worst p95, SLA breach count).
 - Terminal-run notifications: optional webhook (`OPL_RUN_WEBHOOK_URL`) on `completed` / `passed` / `failed` / `cancelled` (and aliases); `OPL_RUN_NOTIFY_MODE=log` for dry-run; optional HMAC `OPL_RUN_WEBHOOK_SECRET`; health exposes `run_notify` without secrets.
