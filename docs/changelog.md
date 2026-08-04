@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- ForEach + Fragment/Link in VU tree → JMX (`ForeachController`, disabled `GenericController` fragments, include expand); validate skips fragment defs and expands links.
+- Postman Collection import: `POST /api/perf/scenarios/import-postman` (v2/v2.1 → HTTP steps; `{{var}}` → `${var}`).
+- Validate auto-correlation: `correlation_suggestions[]` (token/CSRF/Bearer heuristics) alongside triage cards.
+- Restore archived scenarios: `POST .../unarchive`; list `?archived=1`.
 - Visual editor depth: If / While / Loop controllers in steps → JMX (`IfController` / `WhileController` / `LoopController`) with nested hashTrees; JMX import preserves controller nesting on round-trip.
 - Custom load curve: `schedule_json.curve` points (`t`/`vus`) resolve via load-policies custom path → peak VUs + duration + ramp for ThreadGroup (honesty: not arrivals-accurate).
 - Lab ops: scenario soft-archive + duplicate; `GET /api/perf/load-policies`; run runners live status; per-step stats + report (`?format=csv`); `POST /api/perf/runs/import-jtl`; validate triage (`pass` + `triage[]`); light `schedule_json` scheduler; instrumentation honesty for public vs compose demo hosts.

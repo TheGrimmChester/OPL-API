@@ -152,6 +152,95 @@ func TestIfWhileLoopControllersJMXRoundTrip(t *testing.T) {
 	}
 }
 
+func TestForeachFragmentIncludeJMX(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "fragment", "name": "LoginFrag",
+			"children": []interface{}{
+				map[string]interface{}{
+					"type": "http", "name": "Login", "method": "POST",
+					"url": "http://127.0.0.1:8080/login",
+				},
+			},
+		},
+		{
+			"type": "include", "name": "UseLogin", "ref": "LoginFrag",
+		},
+		{
+			"type": "foreach", "name": "EachItem", "input_var": "ids", "return_var": "id",
+			"children": []interface{}{
+				map[string]interface{}{
+					"type": "http", "name": "GetItem", "method": "GET",
+					"url": "http://127.0.0.1:8080/items/${id}",
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("frag", "http://127.0.0.1:8080/", "GET", "", 1, 30, raw)
+	for _, want := range []string{
+		`GenericController`, `Fragment:LoginFrag`, `opl.fragment`,
+		`enabled="false"`,
+		`<!-- opl-include ref=LoginFrag -->`,
+		`testname="Login"`,
+		`ForeachController`, `ForeachController.inputVal">ids`, `ForeachController.returnVal">id`,
+		`testname="GetItem"`,
+	} {
+		if !strings.Contains(jmx, want) {
+			t.Fatalf("JMX missing %q\n%s", want, jmx)
+		}
+	}
+	flat := flattenScenarioSteps(steps)
+	// fragment skipped; include expands Login http; foreach marker + GetItem
+	if len(flat) < 3 {
+		t.Fatalf("flat=%#v", flat)
+	}
+	types := []string{}
+	for _, s := range flat {
+		types = append(types, fmt.Sprint(s["type"]))
+	}
+	joined := strings.Join(types, ",")
+	if !strings.Contains(joined, "http") || !strings.Contains(joined, "foreach") {
+		t.Fatalf("unexpected flat types %s", joined)
+	}
+
+	imported := extractStepsFromJMXTree([]byte(jmx))
+	if len(imported) == 0 {
+		t.Fatal("expected import tree")
+	}
+	foundFrag, foundForeach := false, false
+	for _, s := range imported {
+		if fmt.Sprint(s["type"]) == "fragment" {
+			foundFrag = true
+		}
+		if fmt.Sprint(s["type"]) == "foreach" {
+			foundForeach = true
+			if fmt.Sprint(s["input_var"]) != "ids" {
+				t.Fatalf("input_var=%v", s["input_var"])
+			}
+		}
+	}
+	if !foundFrag || !foundForeach {
+		t.Fatalf("import missing fragment/foreach: %#v", imported)
+	}
+}
+
+func TestSuggestAutoCorrelation(t *testing.T) {
+	results := []map[string]interface{}{
+		{
+			"type": "http", "name": "Login", "ok": true,
+			"body_preview": `{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc","user":"a"}`,
+		},
+	}
+	sugs := suggestAutoCorrelation(results)
+	if len(sugs) == 0 {
+		t.Fatal("expected suggestions")
+	}
+	if fmt.Sprint(sugs[0]["engine"]) != "jsonpath" || !strings.Contains(fmt.Sprint(sugs[0]["expression"]), "access_token") {
+		t.Fatalf("%#v", sugs[0])
+	}
+}
+
 func TestApplyLoadCurveToSchedule(t *testing.T) {
 	sched := map[string]interface{}{}
 	peak, dur, honesty := applyLoadCurveToSchedule([]loadCurvePoint{

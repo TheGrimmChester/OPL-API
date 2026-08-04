@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -475,6 +476,8 @@ func triageValidateResults(results []map[string]interface{}) (pass bool, triage 
 		entry := map[string]interface{}{
 			"index": i, "type": typ, "name": step["name"], "ok": ok,
 			"error": getString(step, "error"), "severity": sev, "hint": validateTriageHint(sev, step),
+			"status_code": step["status_code"], "url": step["url"], "method": step["method"],
+			"body_preview": step["body_preview"], "latency_ms": step["latency_ms"],
 		}
 		triage = append(triage, entry)
 	}
@@ -519,6 +522,92 @@ func validateTriageHint(severity string, step map[string]interface{}) string {
 	default:
 		return "Step failed validation — inspect body_preview and vars before starting a load run."
 	}
+}
+
+// suggestAutoCorrelation scans successful HTTP body previews for dynamic tokens
+// and proposes extractors (jsonpath / regex) operators can apply under that step.
+func suggestAutoCorrelation(results []map[string]interface{}) []map[string]interface{} {
+	var out []map[string]interface{}
+	seen := map[string]bool{}
+	for i, step := range results {
+		typ, _ := step["type"].(string)
+		if typ != "" && typ != "http" {
+			continue
+		}
+		ok, _ := step["ok"].(bool)
+		body := fmt.Sprint(step["body_preview"])
+		if body == "" || body == "<nil>" {
+			continue
+		}
+		for _, sug := range detectCorrelationCandidates(body) {
+			key := fmt.Sprintf("%d:%s:%s", i, sug["engine"], sug["expression"])
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			sug["step_index"] = i
+			sug["step_name"] = step["name"]
+			sug["apply_under"] = "http_children"
+			if !ok {
+				sug["note"] = "Step failed — suggestion still useful if body contains tokens."
+			}
+			out = append(out, sug)
+			if len(out) >= 12 {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+var (
+	reJSONToken  = regexp.MustCompile(`(?i)"(access_token|refresh_token|id_token|csrf[_-]?token|xsrf[_-]?token|session[_-]?id|auth[_-]?token|token|jwt)"\s*:\s*"([^"]{8,})"`)
+	reHTMLHidden = regexp.MustCompile(`(?i)<input[^>]+name=["']([^"']*(?:csrf|token|nonce)[^"']*)["'][^>]+value=["']([^"']+)["']`)
+	reHTMLHidden2 = regexp.MustCompile(`(?i)<input[^>]+value=["']([^"']+)["'][^>]+name=["']([^"']*(?:csrf|token|nonce)[^"']*)["']`)
+	reBearer     = regexp.MustCompile(`(?i)Bearer\s+([A-Za-z0-9\-_\.=]{20,})`)
+)
+
+func detectCorrelationCandidates(body string) []map[string]interface{} {
+	var out []map[string]interface{}
+	add := func(engine, expr, vname, sample, why string) {
+		out = append(out, map[string]interface{}{
+			"engine": engine, "expression": expr, "var": vname,
+			"sample": truncateStr(sample, 48), "reason": why,
+			"type": "extract",
+		})
+	}
+	for _, m := range reJSONToken.FindAllStringSubmatch(body, 6) {
+		key := m[1]
+		val := m[2]
+		vname := sanitizeVarName(key)
+		add("jsonpath", "$."+key, vname, val, "JSON field looks like a dynamic token")
+	}
+	for _, m := range reHTMLHidden.FindAllStringSubmatch(body, 4) {
+		add("regex", `name=["']`+regexp.QuoteMeta(m[1])+`["'][^>]*value=["']([^"']+)["']`, sanitizeVarName(m[1]), m[2], "HTML hidden input (CSRF/token)")
+	}
+	for _, m := range reHTMLHidden2.FindAllStringSubmatch(body, 4) {
+		add("regex", `value=["']([^"']+)["'][^>]*name=["']`+regexp.QuoteMeta(m[2])+`["']`, sanitizeVarName(m[2]), m[1], "HTML hidden input (CSRF/token)")
+	}
+	if m := reBearer.FindStringSubmatch(body); len(m) > 1 {
+		add("regex", `Bearer\s+([A-Za-z0-9\-_\.=]+)`, "bearer_token", m[1], "Bearer token in response body")
+	}
+	return out
+}
+
+func sanitizeVarName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		return "token"
+	}
+	return string(out)
 }
 
 // --- Load policies (smooth/sustained/stress/custom → ramp/soak/spike) ---
@@ -920,7 +1009,46 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 	writer.insertAsync("load_scenarios", append(payload, '\n'))
 	writeJSON(w, map[string]interface{}{
 		"ok": true, "id": id, "archived": true,
-		"honesty": "Soft-archive via ReplacingMergeTree (archived=1). Restore not implemented.",
+		"honesty": "Soft-archive via ReplacingMergeTree (archived=1). POST .../unarchive to restore.",
+	})
+}
+
+func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	if !perfRequireAdmin(w, r) {
+		return
+	}
+	if queryClient == nil || writer == nil {
+		http.Error(w, "not ready", 503)
+		return
+	}
+	ctx, _ := ExtractTenantContext(r, queryClient)
+	org, proj := ctx.WriteTenant()
+	sc := loadScenarioMapReqAny(r, id)
+	if sc == nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+	payload, _ := json.Marshal(map[string]interface{}{
+		"id": id, "organization_id": org, "project_id": proj,
+		"name": getString(sc, "name"), "target_url": getString(sc, "target_url"),
+		"method": nz(getString(sc, "method"), "GET"),
+		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),
+		"headers_json": nz(getString(sc, "headers_json"), "{}"), "body": getString(sc, "body"),
+		"thresholds_json": nz(getString(sc, "thresholds_json"), "{}"),
+		"steps_json": nz(getString(sc, "steps_json"), "[]"), "datasets_json": nz(getString(sc, "datasets_json"), "{}"),
+		"sla_json": nz(getString(sc, "sla_json"), "{}"), "schedule_json": nz(getString(sc, "schedule_json"), "{}"),
+		"jmx_xml": getString(sc, "jmx_xml"), "archived": 0,
+		"updated_at": now, "created_at": now,
+	})
+	writer.insertAsync("load_scenarios", append(payload, '\n'))
+	writeJSON(w, map[string]interface{}{
+		"ok": true, "id": id, "archived": false,
+		"honesty": "Restored soft-archived scenario (archived=0 via ReplacingMergeTree).",
 	})
 }
 

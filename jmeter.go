@@ -22,6 +22,7 @@ func registerJMeterMux(mux *http.ServeMux, authView, authAdmin func(string, http
 	authAdmin("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
 	authAdmin("/api/perf/runs/import-jtl", handlePerfImportJTL)
 	registerHARCaptureMux(mux, authView, authAdmin)
+	registerPostmanMux(mux, authView, authAdmin)
 	authView("/api/perf/scenarios/", handlePerfScenarioSubroutes)
 	_ = mux
 }
@@ -59,6 +60,8 @@ func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
 		handlePerfScenarioGate(w, r, id)
 	case "archive":
 		handlePerfScenarioArchive(w, r, id)
+	case "unarchive":
+		handlePerfScenarioUnarchive(w, r, id)
 	case "duplicate":
 		handlePerfScenarioDuplicate(w, r, id)
 	case "schedule":
@@ -641,10 +644,12 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 		}
 	}
 	pass, triage := triageValidateResults(results)
+	suggestions := suggestAutoCorrelation(results)
 	writeJSON(w, map[string]interface{}{
 		"ok": pass, "pass": pass, "scenario_id": id, "steps": results,
-		"triage": triage, "vars": scrubValidateVars(vars),
-		"honesty": "1 VU dry-run with triage hints — fix extract/assert/connectivity before dispatching load workers.",
+		"triage": triage, "correlation_suggestions": suggestions,
+		"vars": scrubValidateVars(vars),
+		"honesty": "1 VU dry-run with triage + auto-correlation suggestions — fix extract/assert/connectivity before dispatching load workers.",
 	})
 }
 
@@ -718,6 +723,23 @@ func loadScenarioMapReq(r *http.Request, id string) map[string]interface{} {
 		if err != nil || len(rows) == 0 {
 			return nil
 		}
+	}
+	return rows[0]
+}
+
+// loadScenarioMapReqAny loads a scenario including soft-archived rows (for unarchive / restore).
+func loadScenarioMapReqAny(r *http.Request, id string) map[string]interface{} {
+	if queryClient == nil || id == "" {
+		return nil
+	}
+	owned := perfOwnedAnd(r)
+	rows, err := queryClient.Query(fmt.Sprintf(`
+		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body,
+			thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml,
+			coalesce(archived, 0) AS archived
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+	if err != nil || len(rows) == 0 {
+		return loadScenarioMapReq(r, id)
 	}
 	return rows[0]
 }

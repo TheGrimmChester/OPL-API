@@ -47,11 +47,15 @@ func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := tenantScopeSQL(r, queryClient, "")
+	showArchived := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
 	arch := scenarioArchivedAnd()
+	if showArchived {
+		arch = " AND coalesce(archived, 0) = 1"
+	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, thresholds_json,
 			steps_json, datasets_json, sla_json, schedule_json,
-			length(jmx_xml) AS jmx_bytes, updated_at
+			length(jmx_xml) AS jmx_bytes, updated_at, coalesce(archived, 0) AS archived
 		FROM ` + chTable("load_scenarios") + ` FINAL WHERE 1=1%s%s
 		ORDER BY updated_at DESC LIMIT 100`, scope, arch))
 	if err != nil {
@@ -65,9 +69,14 @@ func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	honesty := "Docker JMeter engine (default) — federation fan-out ≠ multi-region load cloud. Archived scenarios are hidden."
+	if showArchived {
+		honesty = "Showing soft-archived scenarios (archived=1). POST .../unarchive to restore."
+	}
 	writeJSON(w, map[string]interface{}{
 		"scenarios": rows,
-		"honesty":   "Docker JMeter engine (default) — federation fan-out ≠ multi-region load cloud. Archived scenarios are hidden.",
+		"archived":  showArchived,
+		"honesty":   honesty,
 		"engine":    strings.ToLower(envOr("OPA_PERF_ENGINE", "jmeter")),
 		"runner":    "docker",
 	})
