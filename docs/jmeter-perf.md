@@ -5,7 +5,7 @@ Visual scenario builder in the Dashboard generates Apache JMeter `.jmx`. Runs ex
 ## Honesty
 
 - JMeter-compatible designer; users do **not** need to know JMeter — Design tab builds steps and Agent stores `jmx_xml`.
-- JMX import is best-effort for HTTP samplers, timers, extractors, CSV, classic thread groups.
+- JMX import is best-effort for HTTP samplers, timers, extractors, CSV, classic thread groups, and nested If/While/Loop/Transaction controllers when present.
 - Federation fan-out ≠ multi-region load cloud.
 - Not a full plugin marketplace / Arrivals ThreadGroup / Playwright hybrid VU product.
 - Generated/simple scenarios enforce URL policy (no private/metadata/decimal hosts) before validate/dispatch.
@@ -52,13 +52,13 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 
 ## APIs
 
-- `POST /api/perf/scenarios/upsert` — steps (optional nested `children`), datasets, sla, schedule, optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
-- `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`
+- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), datasets, sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments).
+- `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`; nested controller tree preserved when parseable
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
 - `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` (triage) / `.../gate` / `.../archive` / `.../duplicate` / `.../schedule`
-- `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike
-- `POST /api/perf/runs` — `{scenario_id, dispatch, engine, fanout, profile|policy, workers}`
+- `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike; custom accepts `schedule.curve`
+- `POST /api/perf/runs` — `{scenario_id, dispatch, engine, fanout, profile|policy, workers, schedule}`
 - `POST /api/perf/runs/import-jtl` — offline JTL → run + samples
 - `POST /api/perf/runs/{id}/metrics` — admin or runner token; server recomputes pass/fail via SLA
 - `GET /api/perf/runs/{id}/samples?since=` · `.../gate` · `.../runners` · `.../steps` · `.../report?format=csv`

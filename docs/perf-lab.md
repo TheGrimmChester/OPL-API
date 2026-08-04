@@ -36,11 +36,11 @@ production execution engine.
 | `GET/POST /api/perf/scenarios` + upsert | Scenario CRUD (steps may include nested `children`, CSS/XPath selector metadata). List/get hide soft-archived rows. |
 | `DELETE` / `POST .../scenarios/{id}/archive` | Soft-archive (`archived=1`) |
 | `POST .../scenarios/{id}/duplicate` | Clone scenario (optional `{name}`) |
-| `POST .../scenarios/{id}/schedule` | Patch `schedule_json` (`enabled`, `every_minutes`, `daily_at`) |
+| `POST .../scenarios/{id}/schedule` | Patch `schedule_json` (`enabled`, `every_minutes`, `daily_at`, optional `curve`) |
 | `POST .../scenarios/{id}/validate` | 1 VU dry-run; `ok`/`pass` + `triage[]` (severity/hint) when steps fail |
 | `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
-| `GET /api/perf/load-policies` | Presets: smooth→ramp, sustained→soak, stress→spike, custom |
+| `GET /api/perf/load-policies` | Presets: smooth→ramp, sustained→soak, stress→spike, custom (+ `curve` points) |
 | `POST /api/perf/runs` | Start run; optional `fanout`, `profile`/`policy`, `workers`, `dispatch`. Status is `running` only when an engine is dispatched; `created` when `dispatch:false`; `failed` when dispatch errors. |
 | `POST /api/perf/runs/import-jtl` | Admin — import JMeter JTL → `load_runs` + samples |
 | `POST /api/perf/runs/{id}/cancel` | Admin — mark cancelled + best-effort `docker stop` on registered workers |
@@ -55,7 +55,11 @@ production execution engine.
 
 ### Nested steps / visual editor backend
 
-`steps_json` may nest `children` under `transaction`/`container` and `http` (extract/assert). JMX emission opens nested `hashTree`s; validate flattens depth-first via `flattenScenarioSteps`.
+`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+
+### Custom load curve
+
+`schedule_json.curve`: `[{ "t": 0, "vus": 0 }, { "t": 30, "vus": 20 }, …]`. On run/schedule, OPL maps peak VUs + duration + `ramp_seconds` onto classic ThreadGroup (honesty: not arrivals-accurate injectors).
 
 ### Light scheduler
 
