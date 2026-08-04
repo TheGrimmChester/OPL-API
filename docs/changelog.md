@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bench report formats: `GET .../runs/{id}/report?format=html|pdf` (JSON/CSV unchanged); `GET .../runs/{id}/bench-pack` ZIP (JSON+CSV+HTML+PDF+MANIFEST).
+- Scenario trends: `GET .../scenarios/{id}/trends` (multi-run points, best/worst p95, SLA breach count).
 - Terminal-run notifications: optional webhook (`OPL_RUN_WEBHOOK_URL`) on `completed` / `passed` / `failed` / `cancelled` (and aliases); `OPL_RUN_NOTIFY_MODE=log` for dry-run; optional HMAC `OPL_RUN_WEBHOOK_SECRET`; health exposes `run_notify` without secrets.
 - ForEach + Fragment/Link in VU tree → JMX (`ForeachController`, disabled `GenericController` fragments, include expand); validate skips fragment defs and expands links.
 - Postman Collection import: `POST /api/perf/scenarios/import-postman` (v2/v2.1 → HTTP steps; `{{var}}` → `${var}`).
