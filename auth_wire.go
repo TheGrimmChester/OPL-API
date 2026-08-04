@@ -8,6 +8,8 @@ import (
 )
 
 // Thin product wiring around Open-Auth-Go. No local JWT/middleware copies.
+// Gate.Middleware calls ApplyUserTenantHeaders then EnforceProjectACL
+// (Open-Auth-Go #6 / project_ids). Trust hub-minted claims; role admin bypasses.
 
 var (
 	authGate *openauth.Gate
