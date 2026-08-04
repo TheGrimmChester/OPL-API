@@ -100,6 +100,42 @@ func ensurePerfLabSchema(q *ClickHouseQuery) {
 		PARTITION BY toDate(ts)
 		ORDER BY (organization_id, project_id, run_id, ts)
 		TTL toDateTime(ts) + toIntervalDay(30)`,
+		// Saved report / trend layouts (widgets, metrics, window) per org+project.
+		`CREATE TABLE IF NOT EXISTS ` + db + `.report_templates (
+			id String,
+			organization_id String DEFAULT '',
+			project_id String DEFAULT '',
+			name String,
+			kind LowCardinality(String) DEFAULT 'report',
+			widgets_json String DEFAULT '[]',
+			metrics_json String DEFAULT '[]',
+			window_json String DEFAULT '{}',
+			options_json String DEFAULT '{}',
+			archived UInt8 DEFAULT 0,
+			created_at DateTime64(3) DEFAULT now64(3),
+			updated_at DateTime64(3) DEFAULT now64(3)
+		) ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY (organization_id, project_id, id)`,
+		// One row per notification channel attempt on a terminal run — including
+		// channels skipped because they are not configured (never silent).
+		`CREATE TABLE IF NOT EXISTS ` + db + `.run_notifications (
+			id String,
+			organization_id String DEFAULT '',
+			project_id String DEFAULT '',
+			run_id String DEFAULT '',
+			scenario_id String DEFAULT '',
+			run_status LowCardinality(String) DEFAULT '',
+			channel LowCardinality(String) DEFAULT '',
+			result LowCardinality(String) DEFAULT '',
+			target String DEFAULT '',
+			detail String DEFAULT '',
+			mode LowCardinality(String) DEFAULT '',
+			source LowCardinality(String) DEFAULT '',
+			created_at DateTime64(3) DEFAULT now64(3)
+		) ENGINE = MergeTree
+		PARTITION BY toDate(created_at)
+		ORDER BY (organization_id, project_id, created_at, run_id)
+		TTL toDateTime(created_at) + toIntervalDay(90)`,
 	}
 	for _, s := range stmts {
 		if err := q.Execute(s); err != nil {

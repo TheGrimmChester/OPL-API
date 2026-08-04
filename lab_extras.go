@@ -1013,20 +1013,23 @@ func handlePerfRunReport(w http.ResponseWriter, r *http.Request, runID string) {
 		http.Error(w, "not found", 404)
 		return
 	}
+	tpl, note := resolveExportTemplate(r, "report")
+	applyReportTemplate(report, tpl, note)
 	steps := reportSteps(report)
+	w.Header().Set("X-OPL-Template", tpl.label())
 	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	switch format {
 	case "csv":
-		writeReportCSV(w, runID, steps)
+		writeReportCSV(w, runID, steps, tpl)
 		return
 	case "html":
-		body := renderReportHTML(report)
+		body := renderReportHTML(report, tpl)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.html\"", sanitizePerfExportName(runID)))
 		_, _ = w.Write(body)
 		return
 	case "pdf":
-		body := renderReportPDF(report)
+		body := renderReportPDF(report, tpl)
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.pdf\"", sanitizePerfExportName(runID)))
 		_, _ = w.Write(body)
