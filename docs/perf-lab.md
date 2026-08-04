@@ -23,8 +23,14 @@ production execution engine.
   `warnings` and dispatch reports `dataset_injected` rather than failing quietly. A dataset that points at an
   external `filename` with no inline rows stays **runner-local** — the file must exist where the engine runs.
   See [jmeter-perf.md](jmeter-perf.md#honesty).
-- `opl-orchestrator` exposes `/api/health` only; `opl-api` dispatches run containers and runs the schedule tick
-  itself (see [architecture.md](architecture.md)).
+- `opl-orchestrator` dispatches scheduled runs and reaps finished ones; `opl-api` still dispatches run
+  containers and runs its own schedule tick. Both share the lease table, so running both does not double-fire
+  (see [architecture.md](architecture.md)).
+- **Schedule leasing is proven under concurrency in unit tests, not on a live multi-replica deployment.** The
+  guarantee is single-fire under bounded insert skew, not a linearizable lock — see the leasing section in
+  [architecture.md](architecture.md#schedule-leasing) for the exact assumption.
+- **The reaper only inspects containers this process dispatched.** A run dispatched by another replica is
+  closed on the max-runtime deadline (`OPL_RUN_MAX_SEC`) rather than on its container exit code.
 
 ## Profiles
 
@@ -48,6 +54,10 @@ production execution engine.
 | `GET /api/perf/scenarios?archived=1` | List soft-archived scenarios |
 | `POST .../scenarios/{id}/duplicate` | Clone scenario (optional `{name}`) |
 | `POST .../scenarios/{id}/schedule` | Patch `schedule_json` (`enabled`, `every_minutes`, `daily_at`, optional `curve`) |
+| `GET .../scenarios/{id}/schedule` | Server-computed `status` (next fire time, `due_now`, fire count) + `lease` (current owner, expiry) |
+| `GET .../scenarios/{id}/schedule/history` | Fire history for one scenario (`?limit=` `?outcome=` `?owner=`) |
+| `GET /api/perf/schedules` | Every enabled schedule with its server-computed next fire time and last lease owner |
+| `GET /api/perf/schedules/history` | Fire history across scenarios (`?scenario_id=` `?limit=` `?outcome=` `?owner=`) |
 | `POST .../scenarios/{id}/validate` | 1 VU dry-run seeded with the first dataset row; `ok`/`pass` + `triage[]` + `correlation_suggestions[]` + `unbound_variables[]` + `dataset` |
 | `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
@@ -137,9 +147,41 @@ documented in [jmeter-perf.md](jmeter-perf.md#parameterised-data-csv).
 
 Caps: `OPA_PERF_MAX_ARRIVALS` (default `OPA_PERF_MAX_VUS×20`, max 10000), `OPA_PERF_MAX_ARRIVAL_RATE` (default 100/s). Honesty strings on run/schedule responses distinguish concurrent-VU approximation from arrivals-accurate open model.
 
-### Light scheduler
+### Leased scheduler
 
-`schedule_json`: `{ "enabled": true, "every_minutes": 60 }` or `{ "enabled": true, "daily_at": "02:30" }` (UTC). `startPerfScheduler` ticks in-process (disable with `OPA_PERF_SCHEDULER_DISABLE=1`).
+`schedule_json`: `{ "enabled": true, "every_minutes": 60 }` or `{ "enabled": true, "daily_at": "02:30" }` (UTC).
+`startPerfScheduler` ticks in `opl-api`, and `opl-orchestrator` ticks the same schedules (disable either with
+`OPA_PERF_SCHEDULER_DISABLE=1`, or just the orchestrator's with `OPL_ORCHESTRATOR_DISPATCH_DISABLE=1`).
+
+Each due occurrence is leased before it fires, so extra replicas stand down instead of double-firing. See
+[architecture.md](architecture.md#schedule-leasing) for the protocol and its one assumption.
+
+**Scheduling state lives in `load_schedule_state`, not in the scenario row.** Recording a fire used to rewrite
+the entire `load_scenarios` row from a snapshot taken before the fire, silently reverting any scenario edit made
+in between. It now writes only the scheduling columns, so a concurrent edit survives.
+
+`schedule_json.last_fired_at` / `next_fire_at` are still read as a fallback for scenarios written before the
+split, but they are no longer written. Read the next fire time from `GET .../scenarios/{id}/schedule` — the
+server computes it, so the UI does not have to.
+
+Tables:
+
+| Table | Engine | Role |
+|-------|--------|------|
+| `load_schedule_state` | `ReplacingMergeTree(updated_at)` | Per-scenario `last_fired_at`, `next_fire_at`, `last_run_id`, `last_fire_key`, `last_owner`, `fire_count` |
+| `load_schedule_leases` | `MergeTree`, 30d TTL | One row per claim on one occurrence — winning **and** losing, so contention is auditable |
+| `load_schedule_fires` | `MergeTree`, 90d TTL | One row per occurrence actually fired, with the owner that won it and the outcome |
+
+### Run reaper
+
+`opl-orchestrator` closes runs stuck in `running` (disable with `OPL_ORCHESTRATOR_REAP_DISABLE=1`). Nothing did
+this before, so a crashed engine left a run `running` forever. Policy, in order: never touch a run inside
+`OPL_RUN_REAP_GRACE_SEC`; close it on its container exit codes once every engine container has exited
+(`completed` on all-zero, `failed` otherwise); otherwise close it as `error` past `OPL_RUN_MAX_SEC`. Reaped runs
+emit the normal terminal-run notification with `source: "reaper"`.
+
+Container inspection only covers containers the reaping process dispatched itself — the registry is in-memory.
+Runs dispatched elsewhere are closed on the deadline alone.
 
 ### Tenant headers
 

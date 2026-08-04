@@ -59,6 +59,8 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 - `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
 - `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` (triage) / `.../gate` / `.../archive` / `.../duplicate` / `.../schedule`
+- `GET /api/perf/scenarios/{id}/schedule` — server-computed next fire time + current lease owner; `.../schedule/history` for the fire history
+- `GET /api/perf/schedules` — all enabled schedules with next fire times; `/api/perf/schedules/history` across scenarios
 - `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike; custom accepts `schedule.curve` with `curve_mode=vus|arrivals`
 - `POST /api/perf/runs` — `{scenario_id, dispatch, engine, fanout, profile|policy, workers, schedule}`
 - `POST /api/perf/runs/import-jtl` — offline JTL → run + samples
