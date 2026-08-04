@@ -6,6 +6,8 @@ Visual scenario builder in the Dashboard generates Apache JMeter `.jmx`. Runs ex
 
 - JMeter-compatible designer; users do **not** need to know JMeter — Design tab builds steps and Agent stores `jmx_xml`.
 - JMX import is best-effort for HTTP samplers, timers, extractors, CSV, classic thread groups, and nested If/While/Loop/Transaction controllers when present.
+- Scenario datasets emit a real `CSVDataSet`; a `filename` without inline rows stays **runner-local** — the file must exist where the engine runs.
+- Unbound-variable detection covers plain `${name}` references only; anything computed inside a JMeter function is opaque and use-before-define ordering is not checked.
 - Federation fan-out ≠ multi-region load cloud.
 - Not a full plugin marketplace / Arrivals ThreadGroup / Playwright hybrid VU product.
 - Generated/simple scenarios enforce URL policy (no private/metadata/decimal hosts) before validate/dispatch.
@@ -62,6 +64,70 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 - `POST /api/perf/runs/import-jtl` — offline JTL → run + samples
 - `POST /api/perf/runs/{id}/metrics` — admin or runner token; server recomputes pass/fail via SLA
 - `GET /api/perf/runs/{id}/samples?since=` · `.../gate` · `.../runners` · `.../steps` · `.../report?format=csv`
+
+## Parameterised data (CSV)
+
+`datasets_json.csv` drives a real `CSVDataSet` in the emitted plan, so `${column}` tokens bind at run
+time instead of reaching the target as literal text.
+
+```json
+{
+  "csv": {
+    "variableNames": "user,password",
+    "delimiter": ",",
+    "inline": "alice,secret1\nbob,secret2",
+    "recycle": true,
+    "share_mode": "all"
+  }
+}
+```
+
+- Inline rows are materialized as `data.csv` next to `plan.jmx` in each worker directory; the emitted
+  element points at the relative name, which JMeter resolves against the running `.jmx` directory
+  (works for host runs and for containers on a shared volume root).
+- `filename` (no `inline`) is passed through verbatim for plans imported from JMX — that path stays
+  **runner-local**: the file must already exist where the engine runs.
+- Inline wins when both are set, and the plan then references `data.csv`.
+- The configured delimiter is used for **both** the `data.csv` write and the emitted `delimiter` prop.
+  A single character, or the words `tab` / `semicolon` / `pipe` / `comma`; a literal tab is written to
+  the plan as `\t`. Anything longer falls back to `,` with a warning on the response.
+- Column names travel in the plan as `variableNames`, never as a header row: the generated `data.csv`
+  holds data rows only. A first row that matches the declared names is treated as a header and dropped;
+  with no declared names the first row *becomes* the names.
+
+### Defaults and why
+
+| Prop | Default | Reason |
+|------|---------|--------|
+| `recycle` | `true` | A load run outlives the data file; wrapping keeps threads working instead of dying mid-run. |
+| `stopThread` | `false` | With recycle on, EOF never happens; stopping threads on EOF would silently shrink the configured VU count and skew the result. Setting both drops `stop_thread` with a warning. |
+| `shareMode` | `shareMode.all` | One iterator shared by every thread (and every arrivals segment), so rows are handed out round-robin instead of every thread replaying row 1. `group` / `thread` are accepted. |
+| `quotedData` | `true` | The generated `data.csv` is written with RFC 4180 quoting, so values containing the delimiter survive. |
+| `ignoreFirstLine` | `false` | The generated file has no header row. Honoured as configured for external `filename` datasets. |
+| `fileEncoding` | `UTF-8` | Overridable with `encoding`. |
+
+The element is emitted once at Test Plan level, before the first thread group, so classic VU plans and
+arrivals segments share the same iterator.
+
+### Worker fan-out
+
+With `workers > 1` and at least as many rows as workers, rows are sharded round-robin so each row is
+used once per pass across the fleet; with fewer rows than workers every worker gets the full file and
+rows repeat. The run response says which happened (`dataset_sharded`, `dataset_honesty`).
+
+### Unbound `${…}` tokens
+
+`POST .../scenarios/{id}/validate` cross-checks every `${…}` reference against dataset columns,
+extractor refnames, ForEach loop variables, `Argument.name` entries in stored raw JMX, and plan
+built-ins (`LOAD_RUN_ID`). Anything left over lands in `unbound_variables[]` with a
+`severity: unbound_variable` triage entry, and validation **fails** — a plan that would fire literal
+`${…}` text must not report a clean pass or burn engine time. JMeter function calls (`${__P(…)}`,
+`${__jexl3(…)}`) are never reported. Dispatch responses carry the same `unbound_variables[]` as a
+warning. When a dataset points at an external `filename` with no declared `variableNames`, columns are
+unknown here and the response says so (`dataset_columns_unknown`) instead of guessing.
+
+Validate also seeds its 1 VU dry-run with the **first data row**, so parameterised requests are
+actually exercised rather than sent with placeholders.
 
 ## Scale
 
