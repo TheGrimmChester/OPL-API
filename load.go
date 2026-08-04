@@ -236,14 +236,6 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 			vus = 50
 		}
 		vus = clampPerfVUs(vus)
-		payload, _ := json.Marshal(map[string]interface{}{
-			"id": id, "organization_id": org, "project_id": proj,
-			"scenario_id": body.ScenarioID, "status": "running", "vus": vus,
-			"started_at": now, "finished_at": now, "summary_json": "{}", "error": "",
-		})
-		if writer != nil {
-			writer.insertAsync("load_runs", append(payload, '\n'))
-		}
 		peerResults := []map[string]interface{}{}
 		fanoutHonesty := "Docker JMeter containers by default; federation fan-out ≠ multi-region load cloud."
 		if body.Fanout {
@@ -260,6 +252,18 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		engine := strings.ToLower(nz(body.Engine, envOr("OPA_PERF_ENGINE", "jmeter")))
 		dispatchInfo := map[string]interface{}{"dispatched": false}
+		provisional := "created"
+		if wantDispatch {
+			provisional = "running"
+		}
+		payload, _ := json.Marshal(map[string]interface{}{
+			"id": id, "organization_id": org, "project_id": proj,
+			"scenario_id": body.ScenarioID, "status": provisional, "vus": vus,
+			"started_at": now, "finished_at": now, "summary_json": "{}", "error": "",
+		})
+		if writer != nil {
+			writer.insertAsync("load_runs", append(payload, '\n'))
+		}
 		if wantDispatch {
 			if engine == "jmeter" || engine == "" {
 				dispatchInfo = dispatchJMeterRunScaled(body.ScenarioID, id, vus, body.Workers, org, proj)
@@ -281,8 +285,26 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			dispatchInfo["tip"] = "Pass dispatch:true (admin) to spawn ephemeral JMeter Docker container(s)."
 		}
+		runStatus, runErr := initialLoadRunStatus(wantDispatch, dispatchInfo)
+		if runStatus != provisional && writer != nil {
+			summaryObj := map[string]interface{}{}
+			if runErr != "" {
+				summaryObj["dispatch_error"] = runErr
+			}
+			sumBytes, _ := json.Marshal(summaryObj)
+			if len(sumBytes) == 0 {
+				sumBytes = []byte("{}")
+			}
+			fix := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+			fixPayload, _ := json.Marshal(map[string]interface{}{
+				"id": id, "organization_id": org, "project_id": proj,
+				"scenario_id": body.ScenarioID, "status": runStatus, "vus": vus,
+				"started_at": now, "finished_at": fix, "summary_json": string(sumBytes), "error": runErr,
+			})
+			writer.insertAsync("load_runs", append(fixPayload, '\n'))
+		}
 		writeJSON(w, map[string]interface{}{
-			"ok": true, "id": id, "load_run_id": id, "profile": body.Profile, "engine": engine,
+			"ok": true, "id": id, "load_run_id": id, "status": runStatus, "profile": body.Profile, "engine": engine,
 			"headers": map[string]string{
 				"X-OPA-Load-Run-Id": id,
 				"baggage":           "load_run_id=" + id,
@@ -300,7 +322,7 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 	scope := tenantScopeSQL(r, queryClient, "")
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, scenario_id, status, vus, started_at, finished_at, summary_json, error
-		FROM ` + chTable("load_runs") + ` WHERE 1=1%s
+		FROM ` + chTable("load_runs") + ` FINAL WHERE 1=1%s
 		ORDER BY started_at DESC LIMIT 100`, scope))
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"runs": []interface{}{}})
@@ -334,18 +356,69 @@ func handlePerfRunByID(w http.ResponseWriter, r *http.Request) {
 		handlePerfRunGate(w, r, id)
 		return
 	}
+	if len(parts) > 1 && parts[1] == "cancel" {
+		handlePerfRunCancel(w, r, id)
+		return
+	}
 	if queryClient == nil {
 		http.Error(w, "not ready", 503)
 		return
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, scenario_id, status, vus, started_at, finished_at, summary_json, error
-		FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
+		FROM ` + chTable("load_runs") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
 	if err != nil || len(rows) == 0 {
 		http.Error(w, "not found", 404)
 		return
 	}
 	writeJSON(w, rows[0])
+}
+
+func handlePerfRunCancel(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	if !perfRequireAdmin(w, r) {
+		return
+	}
+	if queryClient == nil || writer == nil {
+		http.Error(w, "not ready", 503)
+		return
+	}
+	ctx, _ := ExtractTenantContext(r, queryClient)
+	org, proj := ctx.WriteTenant()
+	rows, err := queryClient.Query(fmt.Sprintf(`
+		SELECT id, scenario_id, status, vus, started_at, summary_json, error
+		FROM ` + chTable("load_runs") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
+	if err != nil || len(rows) == 0 {
+		http.Error(w, "not found", 404)
+		return
+	}
+	cur := getString(rows[0], "status")
+	if runStatusTerminal(cur) || strings.EqualFold(cur, "created") {
+		writeJSON(w, map[string]interface{}{
+			"ok": true, "id": id, "status": cur, "honesty": "already terminal — no cancel needed",
+		})
+		return
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+	started := getString(rows[0], "started_at")
+	if started == "" {
+		started = now
+	}
+	summary := getString(rows[0], "summary_json")
+	if summary == "" {
+		summary = "{}"
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"id": id, "organization_id": org, "project_id": proj,
+		"scenario_id": getString(rows[0], "scenario_id"), "status": "cancelled",
+		"vus": int(getFloat64(rows[0], "vus")), "started_at": started, "finished_at": now,
+		"summary_json": summary, "error": "cancelled by user",
+	})
+	writer.insertAsync("load_runs", append(payload, '\n'))
+	writeJSON(w, map[string]interface{}{"ok": true, "id": id, "status": "cancelled"})
 }
 
 func handlePerfExportK6(w http.ResponseWriter, r *http.Request, scenarioOrRunID string) {
@@ -404,7 +477,7 @@ func handlePerfRunMetrics(w http.ResponseWriter, r *http.Request, id string) {
 	runScenarioID := ""
 	if queryClient != nil {
 		rows, err := queryClient.Query(fmt.Sprintf(`
-			SELECT id, scenario_id FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
+			SELECT id, scenario_id FROM ` + chTable("load_runs") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), perfOwnedAnd(r)))
 		if err != nil || len(rows) == 0 {
 			http.Error(w, "run not found", 404)
 			return
