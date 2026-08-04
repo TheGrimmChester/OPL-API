@@ -782,7 +782,7 @@ func handlePerfScenarioGate(w http.ResponseWriter, r *http.Request, scenarioID s
 		return
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id, scenario_id, status, summary_json FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
+		SELECT id, scenario_id, status, summary_json FROM ` + chTable("load_runs") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
 	if err != nil || len(rows) == 0 {
 		http.Error(w, "run not found", 404)
 		return
@@ -826,7 +826,7 @@ func handlePerfRunGate(w http.ResponseWriter, r *http.Request, runID string) {
 		return
 	}
 	rows, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id, scenario_id, status, summary_json FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
+		SELECT id, scenario_id, status, summary_json FROM ` + chTable("load_runs") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
 	if err != nil || len(rows) == 0 {
 		http.Error(w, "not found", 404)
 		return
@@ -950,7 +950,7 @@ func handlePerfRunSamples(w http.ResponseWriter, r *http.Request, runID string) 
 		return
 	}
 	owned, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id FROM ` + chTable("load_runs") + ` WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
+		SELECT id FROM ` + chTable("load_runs") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
 	if err != nil || len(owned) == 0 {
 		http.Error(w, "not found", 404)
 		return
