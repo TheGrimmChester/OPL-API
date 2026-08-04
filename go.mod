@@ -12,7 +12,7 @@ require (
 	github.com/TheGrimmChester/open-http-go v0.0.0-00010101000000-000000000000
 	github.com/TheGrimmChester/open-job-go v0.0.0
 	github.com/TheGrimmChester/open-logger-go v0.0.0
-	github.com/TheGrimmChester/open-tenant-go v0.2.0
+	github.com/TheGrimmChester/open-tenant-go v0.2.2
 )
 
 replace github.com/TheGrimmChester/open-job-go => ../Open-Job-Go
