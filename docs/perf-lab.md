@@ -35,11 +35,14 @@ production execution engine.
 |----------|------|
 | `GET/POST /api/perf/scenarios` + upsert | Scenario CRUD (steps may include nested `children`, CSS/XPath selector metadata). List/get hide soft-archived rows. |
 | `DELETE` / `POST .../scenarios/{id}/archive` | Soft-archive (`archived=1`) |
+| `POST .../scenarios/{id}/unarchive` | Restore soft-archived scenario (`archived=0`) |
+| `GET /api/perf/scenarios?archived=1` | List soft-archived scenarios |
 | `POST .../scenarios/{id}/duplicate` | Clone scenario (optional `{name}`) |
 | `POST .../scenarios/{id}/schedule` | Patch `schedule_json` (`enabled`, `every_minutes`, `daily_at`, optional `curve`) |
-| `POST .../scenarios/{id}/validate` | 1 VU dry-run; `ok`/`pass` + `triage[]` (severity/hint) when steps fail |
+| `POST .../scenarios/{id}/validate` | 1 VU dry-run; `ok`/`pass` + `triage[]` + `correlation_suggestions[]` |
 | `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
+| `POST /api/perf/scenarios/import-postman` | Postman Collection v2/v2.1 → HTTP steps |
 | `GET /api/perf/load-policies` | Presets: smooth→ramp, sustained→soak, stress→spike, custom (+ `curve` points) |
 | `POST /api/perf/runs` | Start run; optional `fanout`, `profile`/`policy`, `workers`, `dispatch`. Status is `running` only when an engine is dispatched; `created` when `dispatch:false`; `failed` when dispatch errors. |
 | `POST /api/perf/runs/import-jtl` | Admin — import JMeter JTL → `load_runs` + samples |
@@ -55,7 +58,7 @@ production execution engine.
 
 ### Nested steps / visual editor backend
 
-`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). `include`/`link` expands a named fragment at validate/JMX emit. JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController` / disabled `GenericController` for fragments); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
 
 ### Custom load curve
 

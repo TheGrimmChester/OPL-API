@@ -43,11 +43,53 @@ func stepChildren(step map[string]interface{}) []map[string]interface{} {
 func isLogicControllerType(typ string) bool {
 	switch typ {
 	case "if", "if_controller", "while", "while_controller", "loop", "loop_controller",
+		"foreach", "foreach_controller", "for_each",
+		"fragment", "include", "link",
 		"container", "transaction":
 		return true
 	default:
 		return false
 	}
+}
+
+// indexFragmentsByName walks a VU tree and maps fragment name → node.
+func indexFragmentsByName(steps []map[string]interface{}) map[string]map[string]interface{} {
+	out := map[string]map[string]interface{}{}
+	var walk func([]map[string]interface{})
+	walk = func(list []map[string]interface{}) {
+		for _, s := range list {
+			typ := fmt.Sprint(s["type"])
+			if typ == "fragment" {
+				name := strings.TrimSpace(fmt.Sprint(s["name"]))
+				if name != "" && name != "<nil>" {
+					out[name] = s
+				}
+			}
+			walk(stepChildren(s))
+		}
+	}
+	walk(steps)
+	return out
+}
+
+// resolveIncludeSteps expands include/link nodes to the referenced fragment's children.
+// Unknown refs become a single failed placeholder step for validate honesty.
+func resolveIncludeSteps(step map[string]interface{}, frags map[string]map[string]interface{}) []map[string]interface{} {
+	ref := strings.TrimSpace(fmt.Sprint(step["ref"]))
+	if ref == "" || ref == "<nil>" {
+		ref = strings.TrimSpace(fmt.Sprint(step["fragment"]))
+	}
+	if ref == "" || ref == "<nil>" {
+		ref = strings.TrimSpace(fmt.Sprint(step["name"]))
+	}
+	frag, ok := frags[ref]
+	if !ok || frag == nil {
+		return []map[string]interface{}{{
+			"type": "transaction", "name": "include:" + ref, "ok": false,
+			"error": "fragment not found: " + ref,
+		}}
+	}
+	return stepChildren(frag)
 }
 
 // canNestChildren reports whether a step type may own a children[] list in the VU tree.
@@ -60,7 +102,9 @@ func canNestChildren(typ string) bool {
 
 // flattenScenarioSteps walks a VU tree depth-first into validate/runtime order
 // (containers/logic controllers unwrap; HTTP then its nested extract/assert children).
+// Fragments are definitions only (skipped); include/link expands referenced children.
 func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface{} {
+	frags := indexFragmentsByName(steps)
 	var out []map[string]interface{}
 	var walk func([]map[string]interface{})
 	walk = func(list []map[string]interface{}) {
@@ -71,12 +115,18 @@ func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface
 			}
 			kids := stepChildren(s)
 			switch typ {
+			case "fragment":
+				// Definition only — included via include/link, not executed inline.
+				continue
+			case "include", "link":
+				walk(resolveIncludeSteps(s, frags))
 			case "container", "transaction":
 				out = append(out, map[string]interface{}{
 					"type": "transaction", "name": s["name"], "ok": true,
 				})
 				walk(kids)
-			case "if", "if_controller", "while", "while_controller", "loop", "loop_controller":
+			case "if", "if_controller", "while", "while_controller", "loop", "loop_controller",
+				"foreach", "foreach_controller", "for_each":
 				clone := map[string]interface{}{}
 				for k, v := range s {
 					if k == "children" {
@@ -286,6 +336,12 @@ func jmxElementToStep(local, testname string, props map[string]string, kids []ma
 		}
 		return step
 	case "TransactionController":
+		if props["opl.fragment"] == "true" || strings.HasPrefix(testname, "Fragment:") {
+			name := strings.TrimPrefix(testname, "Fragment:")
+			return map[string]interface{}{
+				"type": "fragment", "name": nz(name, "Fragment"), "children": kids,
+			}
+		}
 		return map[string]interface{}{
 			"type": "transaction", "name": nz(testname, "Transaction"), "children": kids,
 		}
@@ -306,6 +362,24 @@ func jmxElementToStep(local, testname string, props map[string]string, kids []ma
 		return map[string]interface{}{
 			"type": "loop", "name": nz(testname, "Loop"),
 			"loops": loops, "forever": forever, "children": kids,
+		}
+	case "ForeachController":
+		return map[string]interface{}{
+			"type": "foreach", "name": nz(testname, "ForEach"),
+			"input_var":     props["ForeachController.inputVal"],
+			"return_var":    props["ForeachController.returnVal"],
+			"use_separator": props["ForeachController.useSeparator"] != "false",
+			"children":      kids,
+		}
+	case "GenericController":
+		if props["opl.fragment"] == "true" || strings.HasPrefix(testname, "Fragment:") {
+			name := strings.TrimPrefix(testname, "Fragment:")
+			return map[string]interface{}{
+				"type": "fragment", "name": nz(name, "Fragment"), "children": kids,
+			}
+		}
+		return map[string]interface{}{
+			"type": "transaction", "name": nz(testname, "Controller"), "children": kids,
 		}
 	case "RegexExtractor":
 		return map[string]interface{}{

@@ -72,8 +72,9 @@ func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, s
           </collectionProp>
         </HeaderManager>
         <hashTree/>` + "\n")
+	frags := indexFragmentsByName(steps)
 	for i, step := range steps {
-		appendStepJMX(&b, step, i)
+		appendStepJMXIndexed(&b, step, i, "        ", frags)
 	}
 	b.WriteString("      </hashTree>\n")
 	b.WriteString("    </hashTree>\n")
@@ -83,16 +84,25 @@ func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, s
 }
 
 func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
-	appendStepJMXIndent(b, step, i, "        ")
+	appendStepJMXIndexed(b, step, i, "        ", nil)
 }
 
 func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int, indent string) {
+	appendStepJMXIndexed(b, step, i, indent, nil)
+}
+
+func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int, indent string, frags map[string]map[string]interface{}) {
 	typ := fmt.Sprint(step["type"])
 	if typ == "" || typ == "<nil>" {
 		typ = "http"
 	}
 	name := nz(fmt.Sprint(step["name"]), fmt.Sprintf("step-%d", i+1))
 	kids := stepChildren(step)
+	emitKids := func(list []map[string]interface{}, childIndent string) {
+		for j, child := range list {
+			appendStepJMXIndexed(b, child, j, childIndent, frags)
+		}
+	}
 	switch typ {
 	case "extract":
 		expr := fmt.Sprint(step["expression"])
@@ -141,9 +151,7 @@ func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int,
 %s  <boolProp name="TransactionController.includeTimers">false</boolProp>
 %s</TransactionController>
 %s<hashTree>`+"\n", indent, xmlEscape(name), indent, indent, indent))
-		for j, child := range kids {
-			appendStepJMXIndent(b, child, j, indent+"  ")
-		}
+		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "if", "if_controller":
 		cond := nz(fmt.Sprint(step["condition"]), `${__jexl3(true)}`)
@@ -156,9 +164,7 @@ func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int,
 %s  <boolProp name="IfController.useExpression">true</boolProp>
 %s</IfController>
 %s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(cond), indent, indent, indent, indent))
-		for j, child := range kids {
-			appendStepJMXIndent(b, child, j, indent+"  ")
-		}
+		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "while", "while_controller":
 		cond := nz(fmt.Sprint(step["condition"]), `${__jexl3(false)}`)
@@ -169,9 +175,7 @@ func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int,
 %s  <stringProp name="WhileController.condition">%s</stringProp>
 %s</WhileController>
 %s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(cond), indent, indent))
-		for j, child := range kids {
-			appendStepJMXIndent(b, child, j, indent+"  ")
-		}
+		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "loop", "loop_controller":
 		loops := 1
@@ -187,10 +191,59 @@ func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int,
 %s  <stringProp name="LoopController.loops">%d</stringProp>
 %s</LoopController>
 %s<hashTree>`+"\n", indent, xmlEscape(name), indent, forever, indent, loops, indent, indent))
-		for j, child := range kids {
-			appendStepJMXIndent(b, child, j, indent+"  ")
-		}
+		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
+	case "foreach", "foreach_controller", "for_each":
+		inputVar := nz(fmt.Sprint(step["input_var"]), "items")
+		if inputVar == "<nil>" {
+			inputVar = "items"
+		}
+		returnVar := nz(fmt.Sprint(step["return_var"]), "item")
+		if returnVar == "<nil>" {
+			returnVar = "item"
+		}
+		useSep := true
+		if v, ok := step["use_separator"].(bool); ok {
+			useSep = v
+		}
+		b.WriteString(fmt.Sprintf(`%s<ForeachController guiclass="ForeachControlPanel" testclass="ForeachController" testname=%q enabled="true">
+%s  <stringProp name="ForeachController.inputVal">%s</stringProp>
+%s  <stringProp name="ForeachController.returnVal">%s</stringProp>
+%s  <boolProp name="ForeachController.useSeparator">%t</boolProp>
+%s</ForeachController>
+%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(inputVar), indent, xmlEscape(returnVar), indent, useSep, indent, indent))
+		emitKids(kids, indent+"  ")
+		b.WriteString(indent + "</hashTree>\n")
+	case "fragment":
+		// Disabled so definition is preserved for round-trip / include expand, not executed twice.
+		fragName := "Fragment:" + name
+		b.WriteString(fmt.Sprintf(`%s<GenericController guiclass="LogicControllerGui" testclass="GenericController" testname=%q enabled="false">
+%s  <stringProp name="opl.fragment">true</stringProp>
+%s</GenericController>
+%s<hashTree>`+"\n", indent, xmlEscape(fragName), indent, indent, indent))
+		emitKids(kids, indent+"  ")
+		b.WriteString(indent + "</hashTree>\n")
+	case "include", "link":
+		ref := strings.TrimSpace(fmt.Sprint(step["ref"]))
+		if ref == "" || ref == "<nil>" {
+			ref = strings.TrimSpace(fmt.Sprint(step["fragment"]))
+		}
+		if ref == "" || ref == "<nil>" {
+			ref = name
+		}
+		expanded := kids
+		if len(expanded) == 0 && frags != nil {
+			expanded = resolveIncludeSteps(step, frags)
+			if len(expanded) == 1 {
+				errMsg := strings.TrimSpace(fmt.Sprint(expanded[0]["error"]))
+				if errMsg != "" && errMsg != "<nil>" {
+					b.WriteString(fmt.Sprintf("%s<!-- opl-include missing fragment ref=%s -->\n", indent, xmlCommentSafe(ref)))
+					return
+				}
+			}
+		}
+		b.WriteString(fmt.Sprintf("%s<!-- opl-include ref=%s -->\n", indent, xmlCommentSafe(ref)))
+		emitKids(expanded, indent)
 	default: // http
 		method := nz(fmt.Sprint(step["method"]), "GET")
 		urlStr := fmt.Sprint(step["url"])
@@ -270,9 +323,7 @@ func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int,
 %s  <boolProp name="HTTPSampler.follow_redirects">true</boolProp>%s
 %s</HTTPSamplerProxy>
 %s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(domain), indent, xmlEscape(port), indent, xmlEscape(proto), indent, xmlEscape(path), indent, xmlEscape(method), indent, bodyXML, indent, indent))
-		for j, child := range kids {
-			appendStepJMXIndent(b, child, j, indent+"  ")
-		}
+		emitKids(kids, indent+"  ")
 		think := 0
 		if t, ok := asFloat(step["think_ms"]); ok {
 			think = int(t)
