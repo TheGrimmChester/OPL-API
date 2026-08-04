@@ -120,8 +120,16 @@ function loadCsvRows(scenario) {
   const text = csv.inline || '';
   if (!text) return [];
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
-  const delim = csv.delimiter || ',';
-  const names = (csv.variableNames || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // Same delimiter/header rules as the JMeter path: `tab` and `\t` are spelled out, column
+  // names come from the first line when none are declared, and a matching header is dropped.
+  let delim = csv.delimiter || ',';
+  if (delim === '\\t' || delim.toLowerCase() === 'tab') delim = '\t';
+  let names = (csv.variableNames || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!names.length) {
+    names = (lines.shift() || '').split(delim).map((s) => s.trim());
+  } else if (lines.length && lines[0].split(delim).map((s) => s.trim()).join(',') === names.join(',')) {
+    lines.shift();
+  }
   return lines.map((line) => {
     const cols = line.split(delim);
     const row = {};

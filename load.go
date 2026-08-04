@@ -204,9 +204,14 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 	} else {
 		body.VUs = clampPerfVUs(body.VUs)
 	}
+	dataset := perfCSVDatasetFromJSON(string(datasets))
 	jmx := body.JMXXML
 	if strings.TrimSpace(jmx) == "" || curveModeFromSchedule(schedMap) == "arrivals" {
-		jmx = generateJMXFromUpsertEx(body.Name, body.TargetURL, nz(body.Method, "GET"), body.Body, body.VUs, body.DurationSeconds, steps, schedMap)
+		jmx = generateJMXFromUpsertData(body.Name, body.TargetURL, nz(body.Method, "GET"), body.Body, body.VUs, body.DurationSeconds, steps, schedMap, dataset)
+	} else {
+		// Operator-supplied JMX (the Dashboard posts the stored plan back on every save):
+		// re-wire the dataset so the plan cannot drift from datasets_json.
+		jmx, _ = syncJMXCSVDataSet(jmx, dataset)
 	}
 	if jmxContainsUnsafeElements(jmx) {
 		http.Error(w, "jmx_xml contains unsafe JMeter elements (script/OS samplers); set OPA_PERF_ALLOW_UNSAFE_JMX=1 to override", 400)
@@ -226,10 +231,22 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 		writer.insertAsync("load_scenarios", append(payload, '\n'))
 	}
 	_, instr := perfInstrumentationHonesty(body.TargetURL)
-	writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"ok": true, "id": id,
 		"honesty": "JMeter-compatible scenario; jmx_xml is source of truth for Docker JMeter runs. " + instr,
-	})
+	}
+	if dataset != nil {
+		resp["dataset"] = dataset.summary()
+	}
+	saved := map[string]interface{}{
+		"target_url": body.TargetURL, "body": body.Body, "headers_json": string(headers),
+		"steps_json": string(steps), "datasets_json": string(datasets), "jmx_xml": jmx,
+	}
+	if unbound, _ := scenarioUnboundVariables(saved); len(unbound) > 0 {
+		resp["unbound_variables"] = unbound
+		resp["warning"] = "Unbound ${…} tokens would be sent as literal text: " + strings.Join(unbound, ", ")
+	}
+	writeJSON(w, resp)
 }
 
 func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
