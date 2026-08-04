@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
 // buildPerfRunReport loads run + samples and returns the structured bench report map.
+// Raw samples are stashed under "_samples" for the samples widget; applyReportTemplate
+// removes that key before the payload is written.
 func buildPerfRunReport(r *http.Request, runID string) (map[string]interface{}, error) {
 	if queryClient == nil {
 		return nil, fmt.Errorf("not ready")
@@ -44,6 +47,7 @@ func buildPerfRunReport(r *http.Request, runID string) (map[string]interface{}, 
 		"summary":      summary,
 		"steps":        steps,
 		"sample_count": len(samples),
+		"_samples":     samples,
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
 		"honesty":      "Structured bench report (JSON/CSV/HTML/PDF). Bench pack ZIP bundles the same artifacts for offline sharing.",
 	}, nil
@@ -65,49 +69,158 @@ func reportSteps(report map[string]interface{}) []map[string]interface{} {
 	return out
 }
 
-func writeReportCSV(w http.ResponseWriter, runID string, steps []map[string]interface{}) {
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.csv\"", runID))
-	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"step_name", "samples", "errors", "error_rate", "avg_ms", "p50_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "url"})
+// --- Template application ---
+
+// reportStepMetricKeys maps a template metric to the per-step aggregate key.
+var reportStepMetricKeys = map[string]string{
+	"p50_ms": "p50_ms", "p95_ms": "p95_ms", "p99_ms": "p99_ms",
+	"avg_ms": "avg_ms", "error_rate": "error_rate", "samples": "samples",
+}
+
+// applyReportTemplate trims the report to the widgets/metrics a template selects.
+// A nil template leaves the full layout untouched. The template that was applied —
+// or the plain reason it was not — is always embedded in the payload.
+func applyReportTemplate(report map[string]interface{}, tpl *reportTemplate, note string) {
+	samples, _ := report["_samples"].([]map[string]interface{})
+	delete(report, "_samples")
+	if note != "" {
+		report["template_note"] = note
+	}
+	if tpl == nil {
+		report["template"] = nil
+		return
+	}
+	report["template"] = tpl.describe()
+	metrics := tpl.metricColumns()
+	steps := reportSteps(report)
+
+	if tpl.hasWidget("kpis") {
+		sum := summaryMap(report)
+		kpis := map[string]interface{}{"requests": numFrom(sum, "requests", "samples", "n")}
+		for _, m := range metrics {
+			kpis[m] = round2(numFrom(sum, m))
+		}
+		report["kpis"] = kpis
+	}
+	if !tpl.hasWidget("summary") {
+		delete(report, "summary")
+	}
+	if tpl.hasWidget("steps") {
+		report["steps"] = filterStepMetrics(steps, metrics)
+	} else {
+		delete(report, "steps")
+	}
+	if tpl.hasWidget("errors") {
+		report["errors"] = reportErrorBreakdown(report, steps)
+	}
+	if tpl.hasWidget("samples") {
+		limit := templateWindowInt(tpl.Options, "sample_cap", 200, 1, 5000)
+		limit = templateWindowInt(tpl.Window, "sample_cap", limit, 1, 5000)
+		if len(samples) > limit {
+			samples = samples[:limit]
+		}
+		report["samples"] = samples
+		report["samples_capped_at"] = limit
+	}
+	report["honesty"] = fmt.Sprintf("%s Layout from template %q (widgets: %s; metrics: %s) — the selection changes what is rendered, never how the run was measured.",
+		report["honesty"], tpl.Name, strings.Join(tpl.Widgets, ","), strings.Join(metrics, ","))
+}
+
+// filterStepMetrics keeps identity columns plus the selected metric columns.
+func filterStepMetrics(steps []map[string]interface{}, metrics []string) []map[string]interface{} {
+	keep := map[string]bool{"step_name": true, "url": true, "errors": true}
+	for _, m := range metrics {
+		if k, ok := reportStepMetricKeys[m]; ok {
+			keep[k] = true
+		}
+	}
+	out := make([]map[string]interface{}, 0, len(steps))
 	for _, st := range steps {
-		_ = cw.Write([]string{
-			fmt.Sprint(st["step_name"]),
-			fmt.Sprint(st["samples"]),
-			fmt.Sprint(st["errors"]),
-			fmt.Sprint(st["error_rate"]),
-			fmt.Sprint(st["avg_ms"]),
-			fmt.Sprint(st["p50_ms"]),
-			fmt.Sprint(st["p95_ms"]),
-			fmt.Sprint(st["p99_ms"]),
-			fmt.Sprint(st["min_ms"]),
-			fmt.Sprint(st["max_ms"]),
-			fmt.Sprint(st["url"]),
-		})
+		row := map[string]interface{}{}
+		for k, v := range st {
+			if keep[k] {
+				row[k] = v
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// reportErrorBreakdown lists the failing steps, worst first, plus the run error.
+func reportErrorBreakdown(report map[string]interface{}, steps []map[string]interface{}) map[string]interface{} {
+	failing := []map[string]interface{}{}
+	for _, st := range steps {
+		if numFrom(st, "errors") > 0 {
+			failing = append(failing, map[string]interface{}{
+				"step_name":  fmt.Sprint(st["step_name"]),
+				"errors":     numFrom(st, "errors"),
+				"samples":    numFrom(st, "samples"),
+				"error_rate": numFrom(st, "error_rate"),
+				"url":        fmt.Sprint(st["url"]),
+			})
+		}
+	}
+	sort.SliceStable(failing, func(i, j int) bool {
+		return numFrom(failing[i], "errors") > numFrom(failing[j], "errors")
+	})
+	out := map[string]interface{}{
+		"failing_steps": failing,
+		"count":         len(failing),
+	}
+	if msg := fmt.Sprint(report["error"]); msg != "" && msg != "<nil>" {
+		out["run_error"] = msg
+	}
+	if len(failing) == 0 {
+		out["honesty"] = "No step recorded an error in the captured samples."
+	}
+	return out
+}
+
+// --- CSV ---
+
+// reportCSVColumns keeps CSV in step with the template selection.
+// A nil template keeps the full column set.
+func reportCSVColumns(tpl *reportTemplate) []string {
+	if tpl == nil {
+		return []string{"step_name", "samples", "errors", "error_rate", "avg_ms", "p50_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "url"}
+	}
+	cols := []string{"step_name"}
+	for _, m := range tpl.metricColumns() {
+		if k, ok := reportStepMetricKeys[m]; ok {
+			cols = append(cols, k)
+		}
+	}
+	return append(cols, "errors", "url")
+}
+
+func writeReportCSVRows(cw *csv.Writer, steps []map[string]interface{}, tpl *reportTemplate) {
+	cols := reportCSVColumns(tpl)
+	_ = cw.Write(cols)
+	for _, st := range steps {
+		row := make([]string, 0, len(cols))
+		for _, c := range cols {
+			v, ok := st[c]
+			if !ok || v == nil {
+				row = append(row, "")
+				continue
+			}
+			row = append(row, fmt.Sprint(v))
+		}
+		_ = cw.Write(row)
 	}
 	cw.Flush()
 }
 
-func reportCSVBytes(steps []map[string]interface{}) []byte {
+func writeReportCSV(w http.ResponseWriter, runID string, steps []map[string]interface{}, tpl *reportTemplate) {
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.csv\"", runID))
+	writeReportCSVRows(csv.NewWriter(w), steps, tpl)
+}
+
+func reportCSVBytes(steps []map[string]interface{}, tpl *reportTemplate) []byte {
 	var buf bytes.Buffer
-	cw := csv.NewWriter(&buf)
-	_ = cw.Write([]string{"step_name", "samples", "errors", "error_rate", "avg_ms", "p50_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "url"})
-	for _, st := range steps {
-		_ = cw.Write([]string{
-			fmt.Sprint(st["step_name"]),
-			fmt.Sprint(st["samples"]),
-			fmt.Sprint(st["errors"]),
-			fmt.Sprint(st["error_rate"]),
-			fmt.Sprint(st["avg_ms"]),
-			fmt.Sprint(st["p50_ms"]),
-			fmt.Sprint(st["p95_ms"]),
-			fmt.Sprint(st["p99_ms"]),
-			fmt.Sprint(st["min_ms"]),
-			fmt.Sprint(st["max_ms"]),
-			fmt.Sprint(st["url"]),
-		})
-	}
-	cw.Flush()
+	writeReportCSVRows(csv.NewWriter(&buf), steps, tpl)
 	return buf.Bytes()
 }
 
@@ -140,10 +253,39 @@ func numFrom(m map[string]interface{}, keys ...string) float64 {
 	return 0
 }
 
-func renderReportHTML(report map[string]interface{}) []byte {
-	sum := summaryMap(report)
+// reportKPIValue reads a KPI from the template-built kpis block when present,
+// falling back to the raw summary so the full layout keeps working.
+func reportKPIValue(report map[string]interface{}, key string) float64 {
+	if kpis, ok := report["kpis"].(map[string]interface{}); ok {
+		if _, has := kpis[key]; has {
+			return numFrom(kpis, key)
+		}
+	}
+	if key == "requests" {
+		return numFrom(summaryMap(report), "requests", "samples", "n")
+	}
+	return numFrom(summaryMap(report), key)
+}
+
+// reportMetricLabels maps a metric key to a short column/KPI label.
+var reportMetricLabels = map[string]string{
+	"p50_ms": "p50 ms", "p95_ms": "p95 ms", "p99_ms": "p99 ms",
+	"avg_ms": "avg ms", "error_rate": "Error rate", "samples": "Samples",
+}
+
+func reportMetricLabel(key string) string {
+	if l, ok := reportMetricLabels[key]; ok {
+		return l
+	}
+	return key
+}
+
+// --- HTML ---
+
+func renderReportHTML(report map[string]interface{}, tpl *reportTemplate) []byte {
 	steps := reportSteps(report)
 	runID := fmt.Sprint(report["run_id"])
+	metrics := tpl.metricColumns()
 	esc := html.EscapeString
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>`)
@@ -156,44 +298,104 @@ h1{font-size:22px;margin:0 0 4px} .meta{color:#555;font-size:13px;margin-bottom:
 .kpi .l{font-size:11px;text-transform:uppercase;color:#666}.kpi .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
 table{border-collapse:collapse;width:100%;font-size:12px} th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}
 th{background:#f4f4f6} td.n{text-align:right;font-variant-numeric:tabular-nums}
+h2{font-size:16px}
+dl.summary{font-size:12px;display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0 0 20px}
+dl.summary dt{color:#555} dl.summary dd{margin:0;font-variant-numeric:tabular-nums}
 .honesty{margin-top:24px;font-size:11px;color:#666;border-top:1px solid #eee;padding-top:12px}
 @media print{body{margin:12mm}}
 </style></head><body>`)
 	b.WriteString(`<h1>Open Perf Lab — bench report</h1>`)
 	b.WriteString(`<div class="meta">Run <strong>` + esc(runID) + `</strong> · status ` + esc(fmt.Sprint(report["status"])) +
 		` · scenario ` + esc(fmt.Sprint(report["scenario_id"])) +
-		` · generated ` + esc(fmt.Sprint(report["generated_at"])) + `</div>`)
-	b.WriteString(`<div class="kpis">`)
-	kpis := []struct{ l, k string }{
-		{"Requests", "requests"}, {"p50 ms", "p50_ms"}, {"p95 ms", "p95_ms"}, {"p99 ms", "p99_ms"}, {"Error rate", "error_rate"},
-	}
-	for _, k := range kpis {
-		v := numFrom(sum, k.k, "samples", "n")
-		if k.k == "requests" {
-			v = numFrom(sum, "requests", "samples", "n")
+		` · generated ` + esc(fmt.Sprint(report["generated_at"])) +
+		` · layout ` + esc(tpl.label()) + `</div>`)
+
+	if tpl.hasWidget("kpis") {
+		b.WriteString(`<div class="kpis">`)
+		b.WriteString(`<div class="kpi"><div class="l">Requests</div><div class="v">` +
+			esc(fmt.Sprintf("%g", reportKPIValue(report, "requests"))) + `</div></div>`)
+		for _, m := range metrics {
+			b.WriteString(`<div class="kpi"><div class="l">` + esc(reportMetricLabel(m)) + `</div><div class="v">` +
+				esc(fmt.Sprintf("%g", reportKPIValue(report, m))) + `</div></div>`)
 		}
-		b.WriteString(`<div class="kpi"><div class="l">` + esc(k.l) + `</div><div class="v">` + esc(fmt.Sprintf("%g", v)) + `</div></div>`)
+		b.WriteString(`</div>`)
 	}
-	b.WriteString(`</div>`)
+
+	if tpl.hasWidget("summary") {
+		if sum := summaryMap(report); len(sum) > 0 {
+			keys := make([]string, 0, len(sum))
+			for k := range sum {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			b.WriteString(`<h2>Run summary</h2><dl class="summary">`)
+			for _, k := range keys {
+				b.WriteString(`<dt>` + esc(k) + `</dt><dd>` + esc(fmt.Sprint(sum[k])) + `</dd>`)
+			}
+			b.WriteString(`</dl>`)
+		}
+	}
+
 	if errMsg := fmt.Sprint(report["error"]); errMsg != "" && errMsg != "<nil>" {
 		b.WriteString(`<p><strong>Error:</strong> ` + esc(errMsg) + `</p>`)
 	}
-	b.WriteString(`<h2 style="font-size:16px">Per-step stats</h2><table><thead><tr>`)
-	for _, h := range []string{"Step", "N", "Errors", "Err%", "avg", "p50", "p95", "p99", "URL"} {
-		b.WriteString(`<th>` + h + `</th>`)
-	}
-	b.WriteString(`</tr></thead><tbody>`)
-	for _, st := range steps {
-		b.WriteString(`<tr>`)
-		b.WriteString(`<td>` + esc(fmt.Sprint(st["step_name"])) + `</td>`)
-		for _, k := range []string{"samples", "errors", "error_rate", "avg_ms", "p50_ms", "p95_ms", "p99_ms"} {
-			b.WriteString(`<td class="n">` + esc(fmt.Sprint(st[k])) + `</td>`)
+
+	if tpl.hasWidget("steps") {
+		b.WriteString(`<h2>Per-step stats</h2><table><thead><tr><th>Step</th>`)
+		for _, m := range metrics {
+			b.WriteString(`<th>` + esc(reportMetricLabel(m)) + `</th>`)
 		}
-		b.WriteString(`<td>` + esc(fmt.Sprint(st["url"])) + `</td></tr>`)
+		b.WriteString(`<th>Errors</th><th>URL</th></tr></thead><tbody>`)
+		for _, st := range steps {
+			b.WriteString(`<tr><td>` + esc(fmt.Sprint(st["step_name"])) + `</td>`)
+			for _, m := range metrics {
+				b.WriteString(`<td class="n">` + esc(fmt.Sprint(st[reportStepMetricKeys[m]])) + `</td>`)
+			}
+			b.WriteString(`<td class="n">` + esc(fmt.Sprint(st["errors"])) + `</td>`)
+			b.WriteString(`<td>` + esc(fmt.Sprint(st["url"])) + `</td></tr>`)
+		}
+		b.WriteString(`</tbody></table>`)
 	}
-	b.WriteString(`</tbody></table>`)
-	b.WriteString(`<p class="honesty">` + esc(fmt.Sprint(report["honesty"])) + `</p>`)
-	b.WriteString(`</body></html>`)
+
+	if tpl.hasWidget("errors") {
+		br := reportErrorBreakdown(report, steps)
+		failing, _ := br["failing_steps"].([]map[string]interface{})
+		b.WriteString(`<h2>Errors</h2>`)
+		if len(failing) == 0 {
+			b.WriteString(`<p>No step recorded an error in the captured samples.</p>`)
+		} else {
+			b.WriteString(`<table><thead><tr><th>Step</th><th>Errors</th><th>Samples</th><th>Err rate</th><th>URL</th></tr></thead><tbody>`)
+			for _, f := range failing {
+				b.WriteString(`<tr><td>` + esc(fmt.Sprint(f["step_name"])) + `</td>`)
+				for _, k := range []string{"errors", "samples", "error_rate"} {
+					b.WriteString(`<td class="n">` + esc(fmt.Sprintf("%g", numFrom(f, k))) + `</td>`)
+				}
+				b.WriteString(`<td>` + esc(fmt.Sprint(f["url"])) + `</td></tr>`)
+			}
+			b.WriteString(`</tbody></table>`)
+		}
+	}
+
+	if tpl.hasWidget("samples") {
+		if rows, ok := report["samples"].([]map[string]interface{}); ok && len(rows) > 0 {
+			b.WriteString(fmt.Sprintf(`<h2>Samples (%d shown)</h2>`, len(rows)))
+			b.WriteString(`<table><thead><tr><th>ts</th><th>step</th><th>latency ms</th><th>status</th><th>ok</th><th>URL</th></tr></thead><tbody>`)
+			for _, s := range rows {
+				b.WriteString(`<tr><td>` + esc(getString(s, "ts")) + `</td><td>` + esc(getString(s, "step_name")) + `</td>`)
+				b.WriteString(`<td class="n">` + esc(fmt.Sprintf("%g", numFrom(s, "latency_ms"))) + `</td>`)
+				b.WriteString(`<td class="n">` + esc(fmt.Sprintf("%g", numFrom(s, "status_code"))) + `</td>`)
+				b.WriteString(`<td class="n">` + esc(fmt.Sprintf("%g", numFrom(s, "ok"))) + `</td>`)
+				b.WriteString(`<td>` + esc(getString(s, "url")) + `</td></tr>`)
+			}
+			b.WriteString(`</tbody></table>`)
+		}
+	}
+
+	b.WriteString(`<p class="honesty">` + esc(fmt.Sprint(report["honesty"])))
+	if note := fmt.Sprint(report["template_note"]); note != "" && note != "<nil>" {
+		b.WriteString(` ` + esc(note))
+	}
+	b.WriteString(`</p></body></html>`)
 	return []byte(b.String())
 }
 
@@ -206,10 +408,10 @@ func pdfEscape(s string) string {
 	return s
 }
 
-func renderReportPDF(report map[string]interface{}) []byte {
-	sum := summaryMap(report)
+func renderReportPDF(report map[string]interface{}, tpl *reportTemplate) []byte {
 	steps := reportSteps(report)
 	runID := fmt.Sprint(report["run_id"])
+	metrics := tpl.metricColumns()
 
 	type pageLines []string
 	var pages []pageLines
@@ -234,22 +436,61 @@ func renderReportPDF(report map[string]interface{}) []byte {
 	add(11, fmt.Sprintf("Run: %s", runID))
 	add(11, fmt.Sprintf("Status: %s   Scenario: %s", report["status"], report["scenario_id"]))
 	add(11, fmt.Sprintf("Generated: %s", report["generated_at"]))
+	add(11, fmt.Sprintf("Layout: %s", tpl.label()))
 	add(11, fmt.Sprintf("VUs: %g   Samples: %v", report["vus"], report["sample_count"]))
-	add(12, fmt.Sprintf("Requests: %g   p50: %g   p95: %g   p99: %g   err: %g",
-		numFrom(sum, "requests", "samples", "n"),
-		numFrom(sum, "p50_ms"), numFrom(sum, "p95_ms"), numFrom(sum, "p99_ms"), numFrom(sum, "error_rate")))
+
+	if tpl.hasWidget("kpis") {
+		parts := []string{fmt.Sprintf("Requests: %g", reportKPIValue(report, "requests"))}
+		for _, m := range metrics {
+			parts = append(parts, fmt.Sprintf("%s: %g", reportMetricLabel(m), reportKPIValue(report, m)))
+		}
+		add(12, strings.Join(parts, "   "))
+	}
 	if errMsg := fmt.Sprint(report["error"]); errMsg != "" && errMsg != "<nil>" {
 		add(11, "Error: "+errMsg)
 	}
-	add(12, "Per-step stats")
-	add(9, "step | n | err | p50 | p95 | p99")
-	for _, st := range steps {
-		row := fmt.Sprintf("%s | %v | %v | %v | %v | %v",
-			truncatePDF(fmt.Sprint(st["step_name"]), 28),
-			st["samples"], st["error_rate"], st["p50_ms"], st["p95_ms"], st["p99_ms"])
-		add(9, row)
+	if tpl.hasWidget("steps") {
+		add(12, "Per-step stats")
+		header := []string{"step"}
+		for _, m := range metrics {
+			header = append(header, reportMetricLabel(m))
+		}
+		add(9, strings.Join(append(header, "err"), " | "))
+		for _, st := range steps {
+			cells := []string{truncatePDF(fmt.Sprint(st["step_name"]), 28)}
+			for _, m := range metrics {
+				cells = append(cells, fmt.Sprint(st[reportStepMetricKeys[m]]))
+			}
+			cells = append(cells, fmt.Sprint(st["errors"]))
+			add(9, strings.Join(cells, " | "))
+		}
+	}
+	if tpl.hasWidget("errors") {
+		br := reportErrorBreakdown(report, steps)
+		failing, _ := br["failing_steps"].([]map[string]interface{})
+		add(12, fmt.Sprintf("Errors (%d failing step(s))", len(failing)))
+		if len(failing) == 0 {
+			add(9, "No step recorded an error in the captured samples.")
+		}
+		for _, f := range failing {
+			add(9, fmt.Sprintf("%s | errors %g | rate %g",
+				truncatePDF(fmt.Sprint(f["step_name"]), 34), numFrom(f, "errors"), numFrom(f, "error_rate")))
+		}
+	}
+	if tpl.hasWidget("samples") {
+		if rows, ok := report["samples"].([]map[string]interface{}); ok && len(rows) > 0 {
+			add(12, fmt.Sprintf("Samples (%d shown)", len(rows)))
+			for _, s := range rows {
+				add(8, fmt.Sprintf("%s | %s | %gms | %g",
+					getString(s, "ts"), truncatePDF(getString(s, "step_name"), 20),
+					numFrom(s, "latency_ms"), numFrom(s, "status_code")))
+			}
+		}
 	}
 	add(8, truncatePDF(fmt.Sprint(report["honesty"]), 90))
+	if note := fmt.Sprint(report["template_note"]); note != "" && note != "<nil>" {
+		add(8, truncatePDF(note, 90))
+	}
 	flush()
 	if len(pages) == 0 {
 		pages = []pageLines{{"BT /F1 12 Tf 48 750 Td (Empty report) Tj ET"}}
@@ -272,9 +513,8 @@ func renderReportPDF(report map[string]interface{}) []byte {
 
 	out.WriteString("%PDF-1.4\n")
 	writeObj("<< /Type /Catalog /Pages 2 0 R >>")
-	// Pages dict written after we know kids — reserve by writing placeholder then... 
-	// Instead: compute page object IDs first.
-	// Objects: 1 Catalog, 2 Pages, 3 Font, then (content, page)*N
+	// Objects: 1 Catalog, 2 Pages, 3 Font, then (content, page)*N. Page object IDs
+	// are planned up front so /Kids can be written before the pages themselves.
 	n := len(pages)
 	contentIDs := make([]int, n)
 	pageIDs := make([]int, n)
@@ -298,15 +538,10 @@ func renderReportPDF(report map[string]interface{}) []byte {
 	writeObj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 
 	for i := 0; i < n; i++ {
-		stream := strings.Join(pages[i], "\n")
-		cid := writeStream(stream)
-		if cid != contentIDs[i] {
-			// Sequential write must match planned IDs.
-		}
-		pid := writeObj(fmt.Sprintf(
+		_ = writeStream(strings.Join(pages[i], "\n"))
+		_ = writeObj(fmt.Sprintf(
 			"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents %d 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
 			contentIDs[i]))
-		_ = pid
 	}
 
 	xrefPos := out.Len()
@@ -341,19 +576,25 @@ func handlePerfRunBenchPack(w http.ResponseWriter, r *http.Request, runID string
 		http.Error(w, "not found", 404)
 		return
 	}
+	tpl, note := resolveExportTemplate(r, "report")
+	applyReportTemplate(report, tpl, note)
 	steps := reportSteps(report)
 	jsonBytes, _ := json.MarshalIndent(report, "", "  ")
-	htmlBytes := renderReportHTML(report)
-	pdfBytes := renderReportPDF(report)
-	csvBytes := reportCSVBytes(steps)
+	htmlBytes := renderReportHTML(report, tpl)
+	pdfBytes := renderReportPDF(report, tpl)
+	csvBytes := reportCSVBytes(steps, tpl)
 	manifest := fmt.Sprintf(`OPL bench pack
 run_id: %s
 scenario_id: %s
 status: %s
 generated_at: %s
+template: %s
 files: report.json, report.csv, report.html, report.pdf, MANIFEST.txt
 honesty: %s
-`, report["run_id"], report["scenario_id"], report["status"], report["generated_at"], report["honesty"])
+`, report["run_id"], report["scenario_id"], report["status"], report["generated_at"], tpl.label(), report["honesty"])
+	if note != "" {
+		manifest += "template_note: " + note + "\n"
+	}
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -375,10 +616,12 @@ honesty: %s
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-bench-%s.zip\"", sanitizePerfExportName(runID)))
 	w.Header().Set("X-OPL-Honesty", "Bench pack ZIP: JSON+CSV+HTML+PDF from the same /report payload.")
+	w.Header().Set("X-OPL-Template", tpl.label())
 	_, _ = w.Write(buf.Bytes())
 }
 
 // handlePerfScenarioTrends returns multi-run summary series for trend widgets.
+// A trend template supplies the window (runs, SLA threshold) and metric selection.
 func handlePerfScenarioTrends(w http.ResponseWriter, r *http.Request, scenarioID string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", 405)
@@ -388,7 +631,12 @@ func handlePerfScenarioTrends(w http.ResponseWriter, r *http.Request, scenarioID
 		http.Error(w, "not ready", 503)
 		return
 	}
+	tpl, note := resolveExportTemplate(r, "trend")
 	limit := 25
+	if tpl != nil {
+		limit = templateWindowInt(tpl.Window, "limit", limit, 1, 100)
+		limit = templateWindowInt(tpl.Window, "runs", limit, 1, 100)
+	}
 	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
 			limit = n
@@ -405,35 +653,39 @@ func handlePerfScenarioTrends(w http.ResponseWriter, r *http.Request, scenarioID
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	metrics := tpl.metricColumns()
 	points := make([]map[string]interface{}, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		row := rows[i]
 		sum := map[string]interface{}{}
 		_ = json.Unmarshal([]byte(getString(row, "summary_json")), &sum)
-		p95 := numFrom(sum, "p95_ms")
-		p50 := numFrom(sum, "p50_ms")
-		p99 := numFrom(sum, "p99_ms")
-		errRate := numFrom(sum, "error_rate")
-		n := numFrom(sum, "requests", "samples", "n")
-		points = append(points, map[string]interface{}{
+		p := map[string]interface{}{
 			"id":          getString(row, "id"),
 			"status":      getString(row, "status"),
 			"vus":         getFloat64(row, "vus"),
 			"started_at":  getString(row, "started_at"),
 			"finished_at": getString(row, "finished_at"),
-			"p50_ms":      p50,
-			"p95_ms":      p95,
-			"p99_ms":      p99,
-			"error_rate":  errRate,
-			"samples":     n,
 			"error":       getString(row, "error"),
-		})
+			// p95 is always present: it drives the SLA breach count and best/worst.
+			"p95_ms": numFrom(sum, "p95_ms"),
+		}
+		for _, m := range metrics {
+			if m == "samples" {
+				p["samples"] = numFrom(sum, "requests", "samples", "n")
+				continue
+			}
+			p[m] = numFrom(sum, m)
+		}
+		points = append(points, p)
 	}
 	// Stats over window
 	var bestP95, worstP95 float64
 	bestID, worstID := "", ""
 	breaches := 0
 	slaP95 := 500.0
+	if tpl != nil {
+		slaP95 = templateWindowFloat(tpl.Window, "sla_p95_ms", slaP95)
+	}
 	if v := r.URL.Query().Get("sla_p95_ms"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 			slaP95 = f
@@ -455,17 +707,25 @@ func handlePerfScenarioTrends(w http.ResponseWriter, r *http.Request, scenarioID
 			p["delta_p95_ms"] = round2(p95 - prev)
 		}
 	}
-	writeJSON(w, map[string]interface{}{
+	out := map[string]interface{}{
 		"ok":           true,
 		"scenario_id":  scenarioID,
 		"points":       points,
 		"count":        len(points),
+		"limit":        limit,
+		"metrics":      metrics,
+		"widgets":      tpl.trendWidgets(),
+		"template":     tpl.describe(),
 		"sla_p95_ms":   slaP95,
 		"best_p95_ms":  bestP95,
 		"best_run_id":  bestID,
 		"worst_p95_ms": worstP95,
 		"worst_run_id": worstID,
 		"sla_breaches": breaches,
-		"honesty":      "Scenario trend series from load_runs.summary_json (≤limit). Not a full template report builder.",
-	})
+		"honesty":      "Scenario trend series from load_runs.summary_json (≤limit). A template selects the window, widgets and metrics; it never recomputes a measurement.",
+	}
+	if note != "" {
+		out["template_note"] = note
+	}
+	writeJSON(w, out)
 }
