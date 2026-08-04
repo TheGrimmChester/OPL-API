@@ -1,17 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	openclickhouse "github.com/TheGrimmChester/open-clickhouse-go"
 )
 
 // maxInFlightInserts bounds concurrent async ClickHouse INSERTs so a stalled
@@ -267,11 +267,11 @@ func (w *ClickHouseWriter) Flush() {
 	w.insertAsync("spans_full", fullData)
 }
 
-// ClickHouseQuery handles queries to ClickHouse
+// ClickHouseQuery handles queries to ClickHouse via Open-ClickHouse-Go.
+// SkipLegacyRewrite: product SQL uses chTable(); hub SQL uses hubTable (opa.*).
 type ClickHouseQuery struct {
-	url      string
+	ch       *openclickhouse.Client
 	database string
-	client   *http.Client
 }
 
 // NewClickHouseQuery creates a new ClickHouse query client (product DB from env).
@@ -284,138 +284,52 @@ func NewClickHouseQueryDB(url, database string) *ClickHouseQuery {
 	if database == "" {
 		database = "opa"
 	}
+	cfg := openclickhouse.Config{
+		URL:               url,
+		Database:          database,
+		Username:          os.Getenv("CLICKHOUSE_USER"),
+		Password:          os.Getenv("CLICKHOUSE_PASSWORD"),
+		SkipLegacyRewrite: true,
+	}
 	return &ClickHouseQuery{
-		url:      url,
+		ch:       openclickhouse.New(cfg),
 		database: database,
-		client:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// rewriteSQL is a no-op. Product SQL must use chTable(); hub/tenant SQL must use hubTable().
-// A blanket opa.→product rewrite incorrectly remapped shared hub tables (projects, api_keys).
-func (q *ClickHouseQuery) rewriteSQL(query string) string {
-	return query
+// Client exposes the underlying Open-ClickHouse-Go client.
+func (q *ClickHouseQuery) Client() *openclickhouse.Client {
+	if q == nil {
+		return nil
+	}
+	return q.ch
 }
 
-// Query executes a query and returns results
+// Query executes a query and returns results (no opa.* rewrite).
 func (q *ClickHouseQuery) Query(query string) ([]map[string]interface{}, error) {
-	query = q.rewriteSQL(query)
-	queryUpper := strings.ToUpper(query)
-	if !strings.Contains(queryUpper, "FORMAT") {
-		query = strings.TrimSpace(query) + " FORMAT JSONEachRow"
+	if q == nil || q.ch == nil {
+		return nil, fmt.Errorf("clickhouse query client not configured")
 	}
-
-	baseURL := strings.TrimRight(q.url, "/")
-	reqURL, err := url.Parse(baseURL)
+	rows, err := q.ch.Query(query)
 	if err != nil {
-		LogError(err, "Invalid ClickHouse URL", map[string]interface{}{
-			"url": baseURL,
-		})
-		return nil, fmt.Errorf("invalid ClickHouse URL: %v", err)
-	}
-
-	reqURL.RawQuery = url.Values{
-		"query": []string{query},
-	}.Encode()
-
-	req, err := http.NewRequest("GET", reqURL.String(), nil)
-	if err != nil {
+		LogError(err, "ClickHouse query failed", nil)
 		return nil, err
 	}
-
-	resp, err := q.client.Do(req)
-	if err != nil {
-		LogError(err, "ClickHouse request failed", map[string]interface{}{
-			"url": reqURL.String(),
-		})
-		return nil, fmt.Errorf("ClickHouse request failed: %v", err)
+	out := make([]map[string]interface{}, len(rows))
+	for i, row := range rows {
+		out[i] = row
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := bufio.NewReader(resp.Body).ReadString('\n')
-		LogError(nil, "ClickHouse query error", map[string]interface{}{
-			"status_code": resp.StatusCode,
-			"url":         reqURL.String(),
-			"body":        body,
-		})
-		return nil, fmt.Errorf("ClickHouse error (status %d): %s", resp.StatusCode, body)
-	}
-
-	var results []map[string]interface{}
-	scanner := bufio.NewScanner(resp.Body)
-	maxCapacity := 10 * 1024 * 1024 // 10MB
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, maxCapacity)
-	parseErrors := 0
-	for scanner.Scan() {
-		var row map[string]interface{}
-		if err := json.Unmarshal(scanner.Bytes(), &row); err != nil {
-			parseErrors++
-			// Log first few parse errors to avoid log spam
-			if parseErrors <= 3 {
-				rowBytes := scanner.Bytes()
-				rowLen := len(rowBytes)
-				truncLen := rowLen
-				if rowLen > 200 {
-					truncLen = 200
-				}
-				LogError(err, "Failed to parse JSON row from ClickHouse response", map[string]interface{}{
-					"row_bytes": string(rowBytes[:truncLen]), // First 200 chars
-				})
-			}
-			continue
-		}
-		results = append(results, row)
-	}
-
-	if parseErrors > 3 {
-		log.Printf("[WARN] ClickHouse query: %d additional rows failed to parse (only first 3 errors logged)", parseErrors-3)
-	}
-
-	return results, scanner.Err()
+	return out, nil
 }
 
-// Execute executes a query without returning results
+// Execute executes a query without returning results.
 func (q *ClickHouseQuery) Execute(query string) error {
-	query = q.rewriteSQL(query)
-	baseURL := strings.TrimRight(q.url, "/")
-	reqURL, err := url.Parse(baseURL)
-	if err != nil {
-		LogError(err, "Invalid ClickHouse URL in Execute", map[string]interface{}{
-			"url": baseURL,
-		})
-		return fmt.Errorf("invalid ClickHouse URL: %v", err)
+	if q == nil || q.ch == nil {
+		return fmt.Errorf("clickhouse query client not configured")
 	}
-
-	reqURL.RawQuery = url.Values{
-		"query": []string{query},
-	}.Encode()
-
-	req, err := http.NewRequest("POST", reqURL.String(), nil)
-	if err != nil {
-		LogError(err, "Failed to create ClickHouse request", nil)
+	if err := q.ch.Exec(query); err != nil {
+		LogError(err, "ClickHouse Execute failed", nil)
 		return err
 	}
-
-	resp, err := q.client.Do(req)
-	if err != nil {
-		LogError(err, "ClickHouse Execute request failed", map[string]interface{}{
-			"url": reqURL.String(),
-		})
-		return fmt.Errorf("ClickHouse request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := bufio.NewReader(resp.Body).ReadString('\n')
-		LogError(nil, "ClickHouse Execute error", map[string]interface{}{
-			"status_code": resp.StatusCode,
-			"url":         reqURL.String(),
-			"body":        body,
-		})
-		return fmt.Errorf("ClickHouse error (status %d): %s", resp.StatusCode, body)
-	}
-
 	return nil
 }
