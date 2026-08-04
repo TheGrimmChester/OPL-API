@@ -20,6 +20,7 @@ import (
 
 func registerJMeterMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
 	authAdmin("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
+	authAdmin("/api/perf/runs/import-jtl", handlePerfImportJTL)
 	registerHARCaptureMux(mux, authView, authAdmin)
 	authView("/api/perf/scenarios/", handlePerfScenarioSubroutes)
 	_ = mux
@@ -35,6 +36,10 @@ func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[0]
 	if len(parts) == 1 {
+		if r.Method == http.MethodDelete {
+			handlePerfScenarioArchive(w, r, id)
+			return
+		}
 		handlePerfScenarioGet(w, r, id)
 		return
 	}
@@ -52,6 +57,12 @@ func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
 		handlePerfExportHAR(w, r, id)
 	case "gate":
 		handlePerfScenarioGate(w, r, id)
+	case "archive":
+		handlePerfScenarioArchive(w, r, id)
+	case "duplicate":
+		handlePerfScenarioDuplicate(w, r, id)
+	case "schedule":
+		handlePerfScenarioSchedule(w, r, id)
 	default:
 		http.Error(w, "not found", 404)
 	}
@@ -66,9 +77,9 @@ func handlePerfScenarioGet(w http.ResponseWriter, r *http.Request, id string) {
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds,
 			headers_json, body, thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml, updated_at
-		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s%s LIMIT 1`, escapeSQL(id), owned, scenarioArchivedAnd()))
 	if err != nil || len(rows) == 0 {
-		// Fallback without JMeter columns for pre-migration agents.
+		// Fallback without archived / JMeter columns for pre-migration agents.
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json, updated_at
 			FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
@@ -453,7 +464,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 		http.Error(w, "not found", 404)
 		return
 	}
-	steps := scenarioSteps(sc)
+	steps := flattenScenarioSteps(scenarioSteps(sc))
 	vars := map[string]string{}
 	results := []map[string]interface{}{}
 	client := perfValidateHTTPClient()
@@ -554,9 +565,11 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 			}
 		}
 	}
+	pass, triage := triageValidateResults(results)
 	writeJSON(w, map[string]interface{}{
-		"ok": true, "scenario_id": id, "steps": results, "vars": scrubValidateVars(vars),
-		"honesty": "1 VU dry-run for extractor/assert debug — not a load run.",
+		"ok": pass, "pass": pass, "scenario_id": id, "steps": results,
+		"triage": triage, "vars": scrubValidateVars(vars),
+		"honesty": "1 VU dry-run with triage hints — fix extract/assert/connectivity before dispatching load workers.",
 	})
 }
 
@@ -622,7 +635,7 @@ func loadScenarioMapReq(r *http.Request, id string) map[string]interface{} {
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body,
 			thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml
-		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s%s LIMIT 1`, escapeSQL(id), owned, scenarioArchivedAnd()))
 	if err != nil || len(rows) == 0 {
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json
@@ -651,7 +664,7 @@ func loadScenarioMapForTenant(id, org, proj string) map[string]interface{} {
 	rows, err := queryClient.Query(fmt.Sprintf(`
 		SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body,
 			thresholds_json, steps_json, datasets_json, sla_json, schedule_json, jmx_xml
-		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(id), owned))
+		FROM ` + chTable("load_scenarios") + ` FINAL WHERE id = '%s'%s%s LIMIT 1`, escapeSQL(id), owned, scenarioArchivedAnd()))
 	if err != nil || len(rows) == 0 {
 		rows, err = queryClient.Query(fmt.Sprintf(`
 			SELECT id, name, target_url, method, vus, duration_seconds, headers_json, body, thresholds_json
