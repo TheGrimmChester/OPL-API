@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -78,5 +79,97 @@ func TestNestedStepsProduceTransactionAndHTTPWithExtractors(t *testing.T) {
 	txTree := strings.Index(jmx[txClose:], "<hashTree>")
 	if txClose < 0 || txTree < 0 {
 		t.Fatalf("TransactionController should open a nested hashTree")
+	}
+}
+
+func TestIfWhileLoopControllersJMXRoundTrip(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "if", "name": "IfOK", "condition": `${__jexl3("${status}"=="200")}`,
+			"children": []interface{}{
+				map[string]interface{}{
+					"type": "loop", "name": "Retry", "loops": 3,
+					"children": []interface{}{
+						map[string]interface{}{
+							"type": "while", "name": "WhileMore", "condition": `${__jexl3("${more}"=="true")}`,
+							"children": []interface{}{
+								map[string]interface{}{
+									"type": "http", "name": "Poll", "method": "GET",
+									"url": "http://127.0.0.1:8080/poll",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("logic", "http://127.0.0.1:8080/", "GET", "", 2, 45, raw)
+	for _, want := range []string{
+		`IfController`, `testname="IfOK"`, `IfController.condition`,
+		`LoopController`, `testname="Retry"`, `LoopController.loops">3`,
+		`WhileController`, `testname="WhileMore"`, `WhileController.condition`,
+		`HTTPSamplerProxy`, `testname="Poll"`,
+	} {
+		if !strings.Contains(jmx, want) {
+			t.Fatalf("JMX missing %q\n%s", want, jmx)
+		}
+	}
+	sc, warnings, err := parseJMXToScenario([]byte(jmx), "logic-rt")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	_ = warnings
+	imported, ok := sc["steps"].([]map[string]interface{})
+	if !ok {
+		// JSON round-trip may yield []interface{}
+		blob, _ := json.Marshal(sc["steps"])
+		if json.Unmarshal(blob, &imported) != nil || len(imported) == 0 {
+			t.Fatalf("expected nested steps, got %#v", sc["steps"])
+		}
+	}
+	if len(imported) != 1 || fmt.Sprint(imported[0]["type"]) != "if" {
+		t.Fatalf("want root if, got %#v", imported)
+	}
+	ifKids := stepChildren(imported[0])
+	if len(ifKids) != 1 || fmt.Sprint(ifKids[0]["type"]) != "loop" {
+		t.Fatalf("want loop under if, got %#v", ifKids)
+	}
+	if int(asFloatOr(ifKids[0]["loops"], 0)) != 3 {
+		t.Fatalf("want loops=3, got %#v", ifKids[0]["loops"])
+	}
+	loopKids := stepChildren(ifKids[0])
+	if len(loopKids) != 1 || fmt.Sprint(loopKids[0]["type"]) != "while" {
+		t.Fatalf("want while under loop, got %#v", loopKids)
+	}
+	whileKids := stepChildren(loopKids[0])
+	if len(whileKids) != 1 || fmt.Sprint(whileKids[0]["type"]) != "http" {
+		t.Fatalf("want http under while, got %#v", whileKids)
+	}
+	if !strings.Contains(fmt.Sprint(whileKids[0]["url"]), "/poll") {
+		t.Fatalf("poll url lost: %#v", whileKids[0]["url"])
+	}
+}
+
+func TestApplyLoadCurveToSchedule(t *testing.T) {
+	sched := map[string]interface{}{}
+	peak, dur, honesty := applyLoadCurveToSchedule([]loadCurvePoint{
+		{TSec: 0, VUs: 0},
+		{TSec: 30, VUs: 20},
+		{TSec: 90, VUs: 20},
+		{TSec: 120, VUs: 0},
+	}, sched)
+	if peak != 20 || dur != 120 {
+		t.Fatalf("peak=%d dur=%d sched=%#v", peak, dur, sched)
+	}
+	if int(asFloatOr(sched["ramp_seconds"], -1)) != 30 {
+		t.Fatalf("ramp_seconds=%v", sched["ramp_seconds"])
+	}
+	if honesty == "" {
+		t.Fatal("expected honesty string")
+	}
+	if fmt.Sprint(sched["policy"]) != "custom" {
+		t.Fatalf("policy=%v", sched["policy"])
 	}
 }

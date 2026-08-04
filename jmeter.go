@@ -181,9 +181,78 @@ func walkJMXTree(ht jmxHashTree, tgs *[]jmxThreadGroup, https *[]jmxHTTPSampler,
 
 func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []string, error) {
 	warnings := []string{}
+	if strings.Contains(string(raw), "kg.apc.jmeter") || strings.Contains(string(raw), "com.blazemeter") {
+		warnings = append(warnings, "Third-party JMeter plugins detected — treated as opaque; not imported.")
+	}
+
+	// Prefer nested tree parse (If/While/Loop/Transaction + nested extractors).
+	if treeSteps := extractStepsFromJMXTree(raw); len(treeSteps) > 0 {
+		vus, dur, ramp := 10, 60, 0
+		var plan jmxTestPlan
+		if xml.Unmarshal(raw, &plan) == nil {
+			var tgs []jmxThreadGroup
+			var https []jmxHTTPSampler
+			var regs []jmxRegexExtractor
+			var csvs []jmxCSVDataSet
+			var timers []jmxConstantTimer
+			for _, ht := range plan.HashTree {
+				walkJMXTree(ht, &tgs, &https, &regs, &csvs, &timers)
+			}
+			if len(tgs) > 0 {
+				pm := jmxPropMap(tgs[0].Props)
+				if n := pm["ThreadGroup.num_threads"]; n != "" {
+					fmt.Sscanf(n, "%d", &vus)
+				}
+				if n := pm["ThreadGroup.ramp_time"]; n != "" {
+					fmt.Sscanf(n, "%d", &ramp)
+				}
+				if n := pm["ThreadGroup.duration"]; n != "" {
+					fmt.Sscanf(n, "%d", &dur)
+				}
+			}
+			_ = https
+			_ = regs
+			_ = timers
+			datasets := map[string]interface{}{}
+			for _, c := range csvs {
+				pm := jmxPropMap(c.Props)
+				datasets["csv"] = map[string]interface{}{
+					"filename": pm["filename"],
+					"variableNames": pm["variableNames"],
+					"delimiter": nz(pm["delimiter"], ","),
+					"recycle": pm["recycle"] != "false",
+					"honesty": "CSV path is local to the runner; upload via datasets_json.inline for Agent-hosted runs.",
+				}
+			}
+			if dur <= 0 {
+				dur = 60
+			}
+			schedule := map[string]interface{}{}
+			if ramp > 0 {
+				schedule["ramp_seconds"] = ramp
+				schedule["profile"] = "ramp"
+			}
+			firstURL, firstMethod := firstHTTPFromSteps(treeSteps)
+			return map[string]interface{}{
+				"name": nz(name, "imported-jmx"), "target_url": firstURL, "method": firstMethod,
+				"vus": vus, "duration_seconds": dur, "steps": treeSteps,
+				"datasets": datasets, "schedule": schedule,
+				"sla":     map[string]interface{}{"p95_ms": 500, "error_rate_max": 0.05},
+				"honesty": "JMX import preserves nested If/While/Loop/Transaction controllers when present; HTTP samplers, extractors, CSV, classic thread groups.",
+			}, warnings, nil
+		}
+		firstURL, firstMethod := firstHTTPFromSteps(treeSteps)
+		return map[string]interface{}{
+			"name": nz(name, "imported-jmx"), "target_url": firstURL, "method": firstMethod,
+			"vus": 10, "duration_seconds": 60, "steps": treeSteps,
+			"datasets": map[string]interface{}{}, "schedule": map[string]interface{}{},
+			"sla":     map[string]interface{}{"p95_ms": 500, "error_rate_max": 0.05},
+			"honesty": "JMX import preserved nested controller tree (thread-group metadata unavailable).",
+		}, warnings, nil
+	}
+
 	var plan jmxTestPlan
 	if err := xml.Unmarshal(raw, &plan); err != nil {
-		// Fallback: regex scrape for common attributes when XML structure varies.
 		return parseJMXLoose(raw, name)
 	}
 	var tgs []jmxThreadGroup
@@ -201,15 +270,6 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 	vus, dur, ramp := 10, 60, 0
 	if len(tgs) > 0 {
 		pm := jmxPropMap(tgs[0].Props)
-		for _, ep := range tgs[0].Elements {
-			if ep.Name == "ThreadGroup.main_controller" {
-				for _, p := range ep.Props {
-					if p.Name == "LoopController.loops" {
-						// loops ignored; duration from scheduler preferred
-					}
-				}
-			}
-		}
 		if n := pm["ThreadGroup.num_threads"]; n != "" {
 			fmt.Sscanf(n, "%d", &vus)
 		}
@@ -265,8 +325,6 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 			step["think_ms"] = think
 		}
 		steps = append(steps, step)
-
-		// Attach extractors that follow in document order loosely: all regex → after each http (best-effort).
 	}
 	for _, re := range regs {
 		pm := jmxPropMap(re.Props)
@@ -299,13 +357,6 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 		schedule["profile"] = "ramp"
 	}
 
-	if strings.Contains(string(raw), "kg.apc.jmeter") || strings.Contains(string(raw), "com.blazemeter") {
-		warnings = append(warnings, "Third-party JMeter plugins detected — treated as opaque; not imported.")
-	}
-	if len(https) == 0 {
-		warnings = append(warnings, "No HTTPSamplerProxy found.")
-	}
-
 	firstURL := "http://127.0.0.1:8080/api/health"
 	firstMethod := "GET"
 	if len(steps) > 0 {
@@ -330,6 +381,30 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 		"honesty":          "JMX import is best-effort for HTTP samplers, timers, extractors, CSV, classic thread groups.",
 	}
 	return out, warnings, nil
+}
+
+func firstHTTPFromSteps(steps []map[string]interface{}) (url, method string) {
+	url, method = "http://127.0.0.1:8080/api/health", "GET"
+	var walk func([]map[string]interface{}) bool
+	walk = func(list []map[string]interface{}) bool {
+		for _, s := range list {
+			if fmt.Sprint(s["type"]) == "http" || s["type"] == nil || fmt.Sprint(s["type"]) == "" {
+				if u, ok := s["url"].(string); ok && u != "" {
+					url = u
+				}
+				if m, ok := s["method"].(string); ok && m != "" {
+					method = m
+				}
+				return true
+			}
+			if walk(stepChildren(s)) {
+				return true
+			}
+		}
+		return false
+	}
+	walk(steps)
+	return url, method
 }
 
 func parseJMXLoose(raw []byte, name string) (map[string]interface{}, []string, error) {
