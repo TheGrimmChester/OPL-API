@@ -42,6 +42,10 @@ production execution engine.
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
 | `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
 
+### Tenant headers
+
+With `OPA_AUTH_REQUIRED=1`, list routes (`GET /api/perf/scenarios`, `GET /api/perf/runs`) scope ClickHouse via `X-Organization-ID` / `X-Project-ID`. Omitting them (or sending `"all"`) scopes to `default-org` / `default-project`, matching writes. See [interop.md](interop.md#tenant-headers).
+
 OPA ingest tags spans with `load_run_id` when it sees `X-OPA-Load-Run-Id` or baggage. OPL-Dashboard presets + baselines panel; Trace Explorer folds `?load_run_id=` into the filter DSL.
 
 ## CI
