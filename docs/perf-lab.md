@@ -53,8 +53,13 @@ production execution engine.
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
 | `GET /api/perf/runs/{id}/gate` | SLA gate (`ok` + `pass` booleans) |
+| `GET /api/health` | Includes `run_notify` (webhook configured / mode; no secrets) |
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
 | `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
+
+### Terminal-run notifications
+
+Set `OPL_RUN_WEBHOOK_URL` (compose `.env`) to POST JSON when a run becomes terminal. Filter with `OPL_RUN_NOTIFY_STATUSES` (default all terminal). Use `OPL_RUN_NOTIFY_MODE=log` for safe E2E without outbound HTTP. See [configuration.md](configuration.md).
 
 ### Nested steps / visual editor backend
 
