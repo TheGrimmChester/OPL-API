@@ -197,7 +197,12 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 	}
 
 	// Prefer nested tree parse (If/While/Loop/Transaction + nested extractors).
+	// Test Plan level fragments come back first so the module references inside the
+	// thread group still resolve against them after the round trip.
 	if treeSteps := extractStepsFromJMXTree(raw); len(treeSteps) > 0 {
+		if frags := extractFragmentStepsFromJMX(raw); len(frags) > 0 {
+			treeSteps = append(frags, treeSteps...)
+		}
 		vus, dur, ramp := 10, 60, 0
 		var plan jmxTestPlan
 		if xml.Unmarshal(raw, &plan) == nil {
@@ -599,6 +604,30 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 			results = append(results, map[string]interface{}{"type": "assert", "ok": ok, "error": msg})
 		case "transaction":
 			results = append(results, map[string]interface{}{"type": "transaction", "name": step["name"], "ok": true})
+		case "include":
+			// Only unresolved references reach here — a resolved one is walked into.
+			entry := map[string]interface{}{
+				"type": "include", "name": step["name"], "ref": step["ref"], "ok": false,
+				"error": nz(fmt.Sprint(step["error"]), "fragment reference did not resolve"),
+			}
+			results = append(results, entry)
+		case "rendezvous":
+			rv := perfRendezvousFromStep(step)
+			results = append(results, map[string]interface{}{
+				"type": "rendezvous", "name": step["name"], "ok": true,
+				"group_size": rv.GroupSize, "timeout_ms": rv.TimeoutMS,
+				"note": "not exercised by a 1 VU dry run — the synchronising timer only releases once the group fills under real load",
+			})
+		case "params":
+			// Fragment inputs are real bindings: seed them so the reused journey is
+			// exercised with its configured values instead of literal ${…} text.
+			names, vals := perfStepParams(step)
+			for _, n := range names {
+				vars[n] = vals[n]
+			}
+			results = append(results, map[string]interface{}{
+				"type": "params", "name": step["name"], "ok": true, "variables": names,
+			})
 		default: // http
 			url := expandPerfVars(fmt.Sprint(step["url"]), vars)
 			if url == "" || url == "<nil>" {
@@ -661,12 +690,45 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 	} else {
 		honesty += " No unbound ${…} tokens: every reference resolves to a dataset column, an extractor, or a plan built-in."
 	}
+	// Reusable journeys: say per reference whether the emitted plan points at the shared
+	// fragment container or holds an inline copy of it, because the two behave
+	// differently under load and the caller cannot tell them apart from the step list.
+	tree := scenarioSteps(sc)
+	fragRefs := perfFragmentRefs(tree, getString(sc, "name"))
+	if h := perfFragmentRefsHonesty(fragRefs); h != "" {
+		honesty += " " + h
+	}
+	for _, ref := range fragRefs {
+		if ref.Mode == perfFragmentModeUnresolved {
+			pass = false
+			triage = append(triage, map[string]interface{}{
+				"kind": "fragment_reference", "step": ref.Step, "ref": ref.Ref,
+				"error": ref.Reason,
+				"fix":   "add a fragment step named " + nz(ref.Ref, "<ref>") + " or point the reference at an existing one",
+			})
+		}
+	}
+	// A burst that cannot fill its group parks threads instead of releasing them.
+	rvTriage := perfRendezvousTriage(tree, int(asFloatOr(sc["vus"], 0)))
+	for _, msg := range rvTriage {
+		pass = false
+		triage = append(triage, map[string]interface{}{
+			"kind": "rendezvous", "error": msg,
+			"fix": "lower group_size to at most the scenario VU count, or set timeout_ms",
+		})
+	}
+	if len(rvTriage) > 0 {
+		honesty += " A synchronising timer whose group never fills blocks its threads instead of bursting, so validation fails rather than letting the run stall."
+	}
 	out := map[string]interface{}{
 		"ok": pass, "pass": pass, "scenario_id": id, "steps": results,
 		"triage": triage, "correlation_suggestions": suggestions,
 		"vars": scrubValidateVars(vars),
 		"unbound_variables": unbound,
 		"honesty": honesty,
+	}
+	if len(fragRefs) > 0 {
+		out["fragment_references"] = fragRefs
 	}
 	if !resolvable {
 		out["dataset_columns_unknown"] = true

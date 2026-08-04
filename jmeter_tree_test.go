@@ -179,9 +179,9 @@ func TestForeachFragmentIncludeJMX(t *testing.T) {
 	raw, _ := json.Marshal(steps)
 	jmx := generateJMXFromUpsert("frag", "http://127.0.0.1:8080/", "GET", "", 1, 30, raw)
 	for _, want := range []string{
-		`GenericController`, `Fragment:LoginFrag`, `opl.fragment`,
+		`<TestFragmentController`, `testname="LoginFrag"`, `opl.fragment`,
 		`enabled="false"`,
-		`<!-- opl-include ref=LoginFrag -->`,
+		`<ModuleController`, `ModuleController.node_path`,
 		`testname="Login"`,
 		`ForeachController`, `ForeachController.inputVal">ids`, `ForeachController.returnVal">id`,
 		`testname="GetItem"`,
@@ -189,6 +189,10 @@ func TestForeachFragmentIncludeJMX(t *testing.T) {
 		if !strings.Contains(jmx, want) {
 			t.Fatalf("JMX missing %q\n%s", want, jmx)
 		}
+	}
+	// The reusable journey is stored once by reference, not copied into the flow.
+	if got := strings.Count(jmx, `testname="Login"`); got != 1 {
+		t.Fatalf("want the Login sampler emitted once (inside the fragment), got %d\n%s", got, jmx)
 	}
 	flat := flattenScenarioSteps(steps)
 	// fragment skipped; include expands Login http; foreach marker + GetItem
@@ -204,24 +208,35 @@ func TestForeachFragmentIncludeJMX(t *testing.T) {
 		t.Fatalf("unexpected flat types %s", joined)
 	}
 
-	imported := extractStepsFromJMXTree([]byte(jmx))
+	// Fragments are Test Plan level containers, so the full import merges them with the
+	// thread group tree.
+	sc, _, err := parseJMXToScenario([]byte(jmx), "frag-rt")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	imported := importedSteps(t, sc)
 	if len(imported) == 0 {
 		t.Fatal("expected import tree")
 	}
-	foundFrag, foundForeach := false, false
+	foundFrag, foundForeach, foundRef := false, false, false
 	for _, s := range imported {
-		if fmt.Sprint(s["type"]) == "fragment" {
+		switch fmt.Sprint(s["type"]) {
+		case "fragment":
 			foundFrag = true
-		}
-		if fmt.Sprint(s["type"]) == "foreach" {
+		case "include":
+			foundRef = true
+			if fmt.Sprint(s["ref"]) != "LoginFrag" {
+				t.Fatalf("module reference lost its target: %#v", s)
+			}
+		case "foreach":
 			foundForeach = true
 			if fmt.Sprint(s["input_var"]) != "ids" {
 				t.Fatalf("input_var=%v", s["input_var"])
 			}
 		}
 	}
-	if !foundFrag || !foundForeach {
-		t.Fatalf("import missing fragment/foreach: %#v", imported)
+	if !foundFrag || !foundForeach || !foundRef {
+		t.Fatalf("import missing fragment/reference/foreach: %#v", imported)
 	}
 }
 
