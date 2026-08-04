@@ -30,6 +30,7 @@ func generateJMXFromUpsertEx(name, targetURL, method, body string, vus, dur int,
 // generateJMXFromUpsertData is the full entry point: it also wires the scenario CSV dataset
 // into the plan so `${column}` tokens are actually bound at run time.
 func generateJMXFromUpsertData(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, sched map[string]interface{}, ds *perfCSVDataset) string {
+	rv := perfRendezvousFromSchedule(sched)
 	if curveModeFromSchedule(sched) == "arrivals" {
 		curve := parseCurveFromSchedule(sched)
 		if len(curve) > 0 {
@@ -37,10 +38,10 @@ func generateJMXFromUpsertData(name, targetURL, method, body string, vus, dur in
 		}
 		segs := arrivalSegmentsFromSched(sched)
 		if len(segs) > 0 {
-			return generateJMXArrivalsFromUpsert(name, targetURL, method, body, stepsJSON, segs, dur, ds)
+			return generateJMXArrivalsFromUpsert(name, targetURL, method, body, stepsJSON, segs, dur, ds, rv)
 		}
 	}
-	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON, ds)
+	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON, ds, rv)
 }
 
 func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
@@ -68,7 +69,7 @@ func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
 	return out
 }
 
-func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, ds *perfCSVDataset) string {
+func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, ds *perfCSVDataset, rv *perfRendezvous) string {
 	var steps []map[string]interface{}
 	_ = json.Unmarshal(stepsJSON, &steps)
 	if len(steps) == 0 {
@@ -82,9 +83,11 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
 	if dur <= 0 {
 		dur = 60
 	}
+	steps, placement := injectPlanRendezvous(steps, rv)
 	var b strings.Builder
 	writeJMXPlanOpen(&b, name)
 	writeJMXCSVDataSet(&b, ds, "      ")
+	writeJMXTestFragments(&b, steps, "      ")
 	b.WriteString(fmt.Sprintf(`      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="VUs" enabled="true">
         <stringProp name="ThreadGroup.num_threads">%d</stringProp>
         <stringProp name="ThreadGroup.ramp_time">10</stringProp>
@@ -97,9 +100,12 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
       </ThreadGroup>`+"\n", vus, dur))
 	b.WriteString("      <hashTree>\n")
 	writeJMXCorrelationHeaders(&b, "        ")
-	frags := indexFragmentsByName(steps)
+	if placement.Mode == "thread_group" {
+		writeJMXSyncTimer(&b, rv, "        ")
+	}
+	ctx := newJMXEmitCtx(name, steps)
 	for i, step := range steps {
-		appendStepJMXIndexed(&b, step, i, "        ", frags)
+		appendStepJMXIndexed(&b, step, i, "        ", ctx)
 	}
 	b.WriteString("      </hashTree>\n")
 	writeJMXPlanClose(&b)
@@ -107,7 +113,7 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
 }
 
 // generateJMXArrivalsFromUpsert emits one stock ThreadGroup per arrival segment (open model, loops=1).
-func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJSON json.RawMessage, segs []arrivalSegment, curveDur int, ds *perfCSVDataset) string {
+func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJSON json.RawMessage, segs []arrivalSegment, curveDur int, ds *perfCSVDataset, rv *perfRendezvous) string {
 	var steps []map[string]interface{}
 	_ = json.Unmarshal(stepsJSON, &steps)
 	if len(steps) == 0 {
@@ -119,11 +125,14 @@ func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJS
 	if curveDur > 0 {
 		journeyBudget = clampPerfDuration(curveDur + 60)
 	}
+	steps, placement := injectPlanRendezvous(steps, rv)
 	var b strings.Builder
 	writeJMXPlanOpen(&b, name)
-	// Test Plan level: one shared iterator for every arrival segment's threads.
+	// Test Plan level: one shared iterator for every arrival segment's threads, and one
+	// copy of each reusable journey that every segment's module references point at.
 	writeJMXCSVDataSet(&b, ds, "      ")
-	frags := indexFragmentsByName(steps)
+	writeJMXTestFragments(&b, steps, "      ")
+	ctx := newJMXEmitCtx(name, steps)
 	for si, seg := range segs {
 		if seg.Arrivals <= 0 {
 			continue
@@ -154,8 +163,11 @@ func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJS
 		if si == 0 {
 			writeJMXCorrelationHeaders(&b, "        ")
 		}
+		if placement.Mode == "thread_group" {
+			writeJMXSyncTimer(&b, rv, "        ")
+		}
 		for i, step := range steps {
-			appendStepJMXIndexed(&b, step, i, "        ", frags)
+			appendStepJMXIndexed(&b, step, i, "        ", ctx)
 		}
 		b.WriteString("      </hashTree>\n")
 	}
@@ -167,7 +179,7 @@ func writeJMXPlanOpen(b *strings.Builder, name string) {
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">` + "\n")
 	b.WriteString("  <hashTree>\n")
-	b.WriteString(`    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="` + xmlEscape(nz(name, "OPA Plan")) + `" enabled="true"/>` + "\n")
+	b.WriteString(`    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="` + xmlEscape(perfPlanNodeName(name)) + `" enabled="true"/>` + "\n")
 	b.WriteString("    <hashTree>\n")
 	b.WriteString(`      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="OPA Vars" enabled="true">
         <collectionProp name="Arguments.arguments">
@@ -202,15 +214,28 @@ func writeJMXCorrelationHeaders(b *strings.Builder, indent string) {
 ` + indent + `<hashTree/>` + "\n")
 }
 
-func appendStepJMX(b *strings.Builder, step map[string]interface{}, i int) {
-	appendStepJMXIndexed(b, step, i, "        ", nil)
+// jmxEmitCtx carries the plan-level facts step emission needs: the Test Plan node name
+// (first element of every ModuleController node path) and the fragment index used to
+// decide whether a reference becomes a module reference or an inline copy.
+type jmxEmitCtx struct {
+	planName string
+	frags    map[string]map[string]interface{}
+	counts   map[string]int
 }
 
-func appendStepJMXIndent(b *strings.Builder, step map[string]interface{}, i int, indent string) {
-	appendStepJMXIndexed(b, step, i, indent, nil)
+// newJMXEmitCtx indexes a VU tree's fragment definitions for one plan.
+func newJMXEmitCtx(planName string, steps []map[string]interface{}) *jmxEmitCtx {
+	return &jmxEmitCtx{
+		planName: planName,
+		frags:    indexFragmentsByName(steps),
+		counts:   perfFragmentNameCounts(steps),
+	}
 }
 
-func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int, indent string, frags map[string]map[string]interface{}) {
+func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int, indent string, ctx *jmxEmitCtx) {
+	if ctx == nil {
+		ctx = &jmxEmitCtx{}
+	}
 	typ := fmt.Sprint(step["type"])
 	if typ == "" || typ == "<nil>" {
 		typ = "http"
@@ -219,7 +244,7 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 	kids := stepChildren(step)
 	emitKids := func(list []map[string]interface{}, childIndent string) {
 		for j, child := range list {
-			appendStepJMXIndexed(b, child, j, childIndent, frags)
+			appendStepJMXIndexed(b, child, j, childIndent, ctx)
 		}
 	}
 	switch typ {
@@ -334,35 +359,48 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "fragment":
-		// Disabled so definition is preserved for round-trip / include expand, not executed twice.
-		fragName := "Fragment:" + name
-		b.WriteString(fmt.Sprintf(`%s<GenericController guiclass="LogicControllerGui" testclass="GenericController" testname=%q enabled="false">
-%s  <stringProp name="opl.fragment">true</stringProp>
-%s</GenericController>
-%s<hashTree>`+"\n", indent, xmlEscape(fragName), indent, indent, indent))
-		emitKids(kids, indent+"  ")
-		b.WriteString(indent + "</hashTree>\n")
+		// A definition, not part of the flow: writeJMXTestFragments emits it once at
+		// Test Plan level as a disabled TestFragmentController that module references
+		// point at, so it is not duplicated into every thread group.
+		return
+	case "rendezvous":
+		writeJMXSyncTimer(b, perfRendezvousFromStep(step), indent)
+	case "params":
+		pnames, pvals := perfStepParams(step)
+		writeJMXUserParameters(b, name, pnames, pvals, indent)
 	case "include", "link":
-		ref := strings.TrimSpace(fmt.Sprint(step["ref"]))
-		if ref == "" || ref == "<nil>" {
-			ref = strings.TrimSpace(fmt.Sprint(step["fragment"]))
+		decision := perfFragmentRefDecision(step, ctx.planName, ctx.frags, ctx.counts)
+		pnames, pvals := perfStepParams(step)
+		if decision.Mode == perfFragmentModeModule {
+			if len(pnames) == 0 {
+				writeJMXModuleController(b, nz(perfStepName(step), decision.Ref), decision.NodePath, indent)
+				return
+			}
+			// Inputs are scoped to this reference by wrapping it: the pre-processor
+			// then applies only to the samplers this module reference contributes.
+			writeJMXModuleParamScope(b, decision, pnames, pvals, indent, func(inner string) {
+				writeJMXModuleController(b, nz(perfStepName(step), decision.Ref), decision.NodePath, inner)
+			})
+			return
 		}
-		if ref == "" || ref == "<nil>" {
-			ref = name
+		if decision.Mode == perfFragmentModeUnresolved {
+			b.WriteString(fmt.Sprintf("%s<!-- opl-include ref=%s mode=%s reason=%s -->\n",
+				indent, xmlCommentSafe(decision.Ref), perfFragmentModeUnresolved, xmlCommentSafe(decision.Reason)))
+			return
 		}
 		expanded := kids
-		if len(expanded) == 0 && frags != nil {
-			expanded = resolveIncludeSteps(step, frags)
-			if len(expanded) == 1 {
-				errMsg := strings.TrimSpace(fmt.Sprint(expanded[0]["error"]))
-				if errMsg != "" && errMsg != "<nil>" {
-					b.WriteString(fmt.Sprintf("%s<!-- opl-include missing fragment ref=%s -->\n", indent, xmlCommentSafe(ref)))
-					return
-				}
-			}
+		if len(expanded) == 0 {
+			expanded = resolveIncludeSteps(step, ctx.frags)
 		}
-		b.WriteString(fmt.Sprintf("%s<!-- opl-include ref=%s -->\n", indent, xmlCommentSafe(ref)))
-		emitKids(expanded, indent)
+		b.WriteString(fmt.Sprintf("%s<!-- opl-include ref=%s mode=%s reason=%s -->\n",
+			indent, xmlCommentSafe(decision.Ref), perfFragmentModeInline, xmlCommentSafe(decision.Reason)))
+		if len(pnames) == 0 {
+			emitKids(expanded, indent)
+			return
+		}
+		writeJMXModuleParamScope(b, decision, pnames, pvals, indent, func(inner string) {
+			emitKids(expanded, inner)
+		})
 	default: // http
 		method := nz(fmt.Sprint(step["method"]), "GET")
 		urlStr := fmt.Sprint(step["url"])
@@ -579,7 +617,7 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 		if arrivalsMode && nWorkers > 1 {
 			workerSegs := scaleArrivalSegments(arrivalSegmentsFromSched(schedMap), workerVUs[i], vus)
 			workerJMX = generateJMXArrivalsFromUpsert(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
-				steps, workerSegs, dur, dataset)
+				steps, workerSegs, dur, dataset, perfRendezvousFromSchedule(schedMap))
 		} else if !arrivalsMode {
 			workerJMX = rewriteJMXThreadCount(jmx, workerVUs[i])
 		}

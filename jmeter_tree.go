@@ -92,6 +92,92 @@ func resolveIncludeSteps(step map[string]interface{}, frags map[string]map[strin
 	return stepChildren(frag)
 }
 
+// foldModuleParamScope collapses an emitted parameter scope — a marked Simple
+// Controller holding a User Parameters pre-processor and one module reference — back
+// into the single include step it was written from, so params survive a round trip.
+// Reports false for any other shape rather than inventing a reference.
+func foldModuleParamScope(kids []map[string]interface{}) (map[string]interface{}, bool) {
+	var params map[string]interface{}
+	var body []map[string]interface{}
+	for _, k := range kids {
+		if fmt.Sprint(k["type"]) == "params" {
+			if p, ok := k["params"].(map[string]interface{}); ok && len(p) > 0 {
+				params = p
+			}
+			continue
+		}
+		body = append(body, k)
+	}
+	if params == nil || len(body) != 1 {
+		return nil, false
+	}
+	if fmt.Sprint(body[0]["type"]) != "include" {
+		return nil, false
+	}
+	step := map[string]interface{}{}
+	for k, v := range body[0] {
+		step[k] = v
+	}
+	step["params"] = params
+	return step, true
+}
+
+// seekTestPlanHashTree advances dec to just inside the Test Plan's hashTree.
+func seekTestPlanHashTree(dec *xml.Decoder) bool {
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok || se.Name.Local != "TestPlan" {
+			continue
+		}
+		if _, err := readXMLStringProps(dec, se); err != nil {
+			return false
+		}
+		for {
+			ntok, nerr := dec.Token()
+			if nerr != nil {
+				return false
+			}
+			switch nt := ntok.(type) {
+			case xml.CharData, xml.Comment:
+				continue
+			case xml.StartElement:
+				if nt.Name.Local == "hashTree" {
+					return true
+				}
+				_ = skipXMLElement(dec, nt)
+			case xml.EndElement:
+				return false
+			}
+		}
+	}
+}
+
+// extractFragmentStepsFromJMX returns the reusable journeys defined at Test Plan level,
+// where the emitter puts them so every thread group's module references share one copy.
+// Thread group contents are not returned here — ThreadGroup itself maps to no step, so
+// its subtree is discarded and cannot double up with extractStepsFromJMXTree.
+func extractFragmentStepsFromJMX(raw []byte) []map[string]interface{} {
+	dec := xml.NewDecoder(strings.NewReader(string(raw)))
+	if !seekTestPlanHashTree(dec) {
+		return nil
+	}
+	steps, err := parseJMXHashTreeSteps(dec)
+	if err != nil && len(steps) == 0 {
+		return nil
+	}
+	var out []map[string]interface{}
+	for _, s := range steps {
+		if fmt.Sprint(s["type"]) == "fragment" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // canNestChildren reports whether a step type may own a children[] list in the VU tree.
 func canNestChildren(typ string) bool {
 	if typ == "" || typ == "http" {
@@ -116,10 +202,32 @@ func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface
 			kids := stepChildren(s)
 			switch typ {
 			case "fragment":
-				// Definition only — included via include/link, not executed inline.
+				// Definition only — reached through include/link, not executed inline.
 				continue
 			case "include", "link":
-				walk(resolveIncludeSteps(s, frags))
+				// The dry run walks into the referenced journey whichever way the plan
+				// emits it. A reference that resolves to nothing contributes a failing
+				// step rather than disappearing from the run it was designed into.
+				if pnames, _ := perfStepParams(s); len(pnames) > 0 {
+					out = append(out, map[string]interface{}{
+						"type": "params", "name": "Fragment inputs: " + perfIncludeRef(s),
+						"params": s["params"],
+					})
+				}
+				if len(kids) > 0 {
+					walk(kids)
+					continue
+				}
+				ref := perfIncludeRef(s)
+				frag, found := frags[ref]
+				if !found || frag == nil {
+					out = append(out, map[string]interface{}{
+						"type": "include", "name": nz(perfStepName(s), ref), "ref": ref,
+						"ok": false, "error": "no fragment named " + ref + " in this scenario",
+					})
+					continue
+				}
+				walk(stepChildren(frag))
 			case "container", "transaction":
 				out = append(out, map[string]interface{}{
 					"type": "transaction", "name": s["name"], "ok": true,
@@ -185,24 +293,52 @@ func skipXMLElement(dec *xml.Decoder, start xml.StartElement) error {
 }
 
 func readXMLStringProps(dec *xml.Decoder, start xml.StartElement) (map[string]string, error) {
+	props, _, err := readXMLProps(dec, start)
+	return props, err
+}
+
+// isXMLScalarProp reports the JMX property elements that carry a single value.
+func isXMLScalarProp(local string) bool {
+	switch local {
+	case "stringProp", "boolProp", "intProp", "longProp", "doubleProp", "floatProp":
+		return true
+	}
+	return false
+}
+
+// readXMLProps reads a JMX element's properties: the flat name→value map plus, for each
+// collectionProp, the ordered values it holds. Nested collections flatten into their
+// outermost collection's list, which is what makes an ordered ModuleController node path
+// and a UserParameters name/value pair recoverable on import.
+func readXMLProps(dec *xml.Decoder, start xml.StartElement) (map[string]string, map[string][]string, error) {
 	props := map[string]string{}
+	colls := map[string][]string{}
 	depth := 1
 	var curName string
 	var buf strings.Builder
+	var collStack []string
 	inString := false
 	for depth > 0 {
 		tok, err := dec.Token()
 		if err != nil {
-			return props, err
+			return props, colls, err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
 			depth++
-			if t.Name.Local == "stringProp" {
-				curName = xmlAttr(t, "name")
-				buf.Reset()
-				inString = true
-			} else if t.Name.Local == "boolProp" || t.Name.Local == "intProp" {
+			if t.Name.Local == "collectionProp" {
+				name := xmlAttr(t, "name")
+				if len(collStack) == 0 {
+					if _, seen := colls[name]; !seen {
+						colls[name] = []string{}
+					}
+					collStack = append(collStack, name)
+				} else {
+					collStack = append(collStack, collStack[0])
+				}
+				continue
+			}
+			if isXMLScalarProp(t.Name.Local) {
 				curName = xmlAttr(t, "name")
 				buf.Reset()
 				inString = true
@@ -212,15 +348,26 @@ func readXMLStringProps(dec *xml.Decoder, start xml.StartElement) (map[string]st
 				buf.Write(t)
 			}
 		case xml.EndElement:
-			if inString && (t.Name.Local == "stringProp" || t.Name.Local == "boolProp" || t.Name.Local == "intProp") {
-				props[curName] = strings.TrimSpace(buf.String())
+			if t.Name.Local == "collectionProp" {
+				if n := len(collStack); n > 0 {
+					collStack = collStack[:n-1]
+				}
+				depth--
+				continue
+			}
+			if inString && isXMLScalarProp(t.Name.Local) {
+				val := strings.TrimSpace(buf.String())
+				props[curName] = val
+				if len(collStack) > 0 {
+					colls[collStack[0]] = append(colls[collStack[0]], val)
+				}
 				inString = false
 			}
 			depth--
 		}
 	}
 	_ = start
-	return props, nil
+	return props, colls, nil
 }
 
 func parseJMXHashTreeSteps(dec *xml.Decoder) ([]map[string]interface{}, error) {
@@ -247,7 +394,7 @@ func parseJMXHashTreeSteps(dec *xml.Decoder) ([]map[string]interface{}, error) {
 				continue
 			}
 			testname := xmlAttr(t, "testname")
-			props, err := readXMLStringProps(dec, t)
+			props, colls, err := readXMLProps(dec, t)
 			if err != nil {
 				return steps, err
 			}
@@ -279,7 +426,7 @@ func parseJMXHashTreeSteps(dec *xml.Decoder) ([]map[string]interface{}, error) {
 				}
 			}
 		nextElem:
-			step := jmxElementToStep(t.Name.Local, testname, props, kids)
+			step := jmxElementToStep(t.Name.Local, testname, props, colls, kids)
 			if step != nil {
 				steps = append(steps, step)
 			}
@@ -287,8 +434,47 @@ func parseJMXHashTreeSteps(dec *xml.Decoder) ([]map[string]interface{}, error) {
 	}
 }
 
-func jmxElementToStep(local, testname string, props map[string]string, kids []map[string]interface{}) map[string]interface{} {
+func jmxElementToStep(local, testname string, props map[string]string, colls map[string][]string, kids []map[string]interface{}) map[string]interface{} {
 	switch local {
+	case "TestFragmentController":
+		return map[string]interface{}{
+			"type": "fragment", "name": nz(strings.TrimPrefix(testname, "Fragment:"), "Fragment"),
+			"children": kids,
+		}
+	case "ModuleController":
+		path := colls["ModuleController.node_path"]
+		ref := ""
+		if len(path) > 0 {
+			ref = path[len(path)-1]
+		}
+		return map[string]interface{}{
+			"type": "include", "name": nz(testname, nz(ref, "Include")), "ref": ref,
+		}
+	case "SyncTimer":
+		group, timeout := 0, 0
+		fmt.Sscanf(props["groupSize"], "%d", &group)
+		fmt.Sscanf(props["timeoutInMs"], "%d", &timeout)
+		return map[string]interface{}{
+			"type": "rendezvous", "name": nz(testname, "Rendezvous"),
+			"group_size": group, "timeout_ms": timeout,
+		}
+	case "UserParameters":
+		names := colls["UserParameters.names"]
+		values := colls["UserParameters.thread_values"]
+		params := map[string]interface{}{}
+		for i, n := range names {
+			if i < len(values) {
+				params[n] = values[i]
+			} else {
+				params[n] = ""
+			}
+		}
+		if len(params) == 0 {
+			return nil
+		}
+		return map[string]interface{}{
+			"type": "params", "name": nz(testname, "Fragment inputs"), "params": params,
+		}
 	case "HTTPSamplerProxy":
 		domain := props["HTTPSampler.domain"]
 		path := props["HTTPSampler.path"]
@@ -376,6 +562,11 @@ func jmxElementToStep(local, testname string, props map[string]string, kids []ma
 			name := strings.TrimPrefix(testname, "Fragment:")
 			return map[string]interface{}{
 				"type": "fragment", "name": nz(name, "Fragment"), "children": kids,
+			}
+		}
+		if props[perfModuleParamsProp] == "true" {
+			if step, ok := foldModuleParamScope(kids); ok {
+				return step
 			}
 		}
 		return map[string]interface{}{
