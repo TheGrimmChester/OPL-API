@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1005,65 +1004,36 @@ func handlePerfRunReport(w http.ResponseWriter, r *http.Request, runID string) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if queryClient == nil {
-		http.Error(w, "not ready", 503)
-		return
-	}
-	rows, err := queryClient.Query(fmt.Sprintf(`
-		SELECT id, scenario_id, status, vus, started_at, finished_at, summary_json, error
-		FROM `+chTable("load_runs")+` FINAL WHERE id = '%s'%s LIMIT 1`, escapeSQL(runID), perfOwnedAnd(r)))
-	if err != nil || len(rows) == 0 {
+	report, err := buildPerfRunReport(r, runID)
+	if err != nil {
+		if err.Error() == "not ready" {
+			http.Error(w, "not ready", 503)
+			return
+		}
 		http.Error(w, "not found", 404)
 		return
 	}
-	run := rows[0]
-	samples := loadRunSampleMaps(r, runID, 5000)
-	if samples == nil {
-		samples = []map[string]interface{}{}
-	}
-	steps := aggregateRunSteps(samples)
-	summary := map[string]interface{}{}
-	_ = json.Unmarshal([]byte(getString(run, "summary_json")), &summary)
-	report := map[string]interface{}{
-		"ok":           true,
-		"run_id":       runID,
-		"scenario_id":  getString(run, "scenario_id"),
-		"status":       getString(run, "status"),
-		"vus":          getFloat64(run, "vus"),
-		"started_at":   getString(run, "started_at"),
-		"finished_at":  getString(run, "finished_at"),
-		"error":        getString(run, "error"),
-		"summary":      summary,
-		"steps":        steps,
-		"sample_count": len(samples),
-		"generated_at": time.Now().UTC().Format(time.RFC3339),
-		"honesty":      "Structured bench report (JSON/CSV). PDF cover pages are out of scope.",
-	}
+	steps := reportSteps(report)
 	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
-	if format == "csv" {
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.csv\"", runID))
-		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"step_name", "samples", "errors", "error_rate", "avg_ms", "p50_ms", "p95_ms", "p99_ms", "min_ms", "max_ms", "url"})
-		for _, st := range steps {
-			_ = cw.Write([]string{
-				fmt.Sprint(st["step_name"]),
-				fmt.Sprint(st["samples"]),
-				fmt.Sprint(st["errors"]),
-				fmt.Sprint(st["error_rate"]),
-				fmt.Sprint(st["avg_ms"]),
-				fmt.Sprint(st["p50_ms"]),
-				fmt.Sprint(st["p95_ms"]),
-				fmt.Sprint(st["p99_ms"]),
-				fmt.Sprint(st["min_ms"]),
-				fmt.Sprint(st["max_ms"]),
-				fmt.Sprint(st["url"]),
-			})
-		}
-		cw.Flush()
+	switch format {
+	case "csv":
+		writeReportCSV(w, runID, steps)
 		return
+	case "html":
+		body := renderReportHTML(report)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.html\"", sanitizePerfExportName(runID)))
+		_, _ = w.Write(body)
+		return
+	case "pdf":
+		body := renderReportPDF(report)
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"opl-report-%s.pdf\"", sanitizePerfExportName(runID)))
+		_, _ = w.Write(body)
+		return
+	default:
+		writeJSON(w, report)
 	}
-	writeJSON(w, report)
 }
 
 func handlePerfRunRunners(w http.ResponseWriter, r *http.Request, runID string) {
