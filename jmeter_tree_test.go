@@ -261,4 +261,63 @@ func TestApplyLoadCurveToSchedule(t *testing.T) {
 	if fmt.Sprint(sched["policy"]) != "custom" {
 		t.Fatalf("policy=%v", sched["policy"])
 	}
+	if fmt.Sprint(sched["curve_mode"]) != "vus" {
+		t.Fatalf("curve_mode=%v", sched["curve_mode"])
+	}
+}
+
+func TestApplyArrivalsCurveToSchedule(t *testing.T) {
+	sched := map[string]interface{}{"curve_mode": "arrivals"}
+	total, dur, honesty := applyLoadCurveToSchedule([]loadCurvePoint{
+		{TSec: 0, Rate: 0},
+		{TSec: 10, Rate: 2},
+		{TSec: 20, Rate: 2},
+		{TSec: 30, Rate: 0},
+	}, sched)
+	// Trapezoids: (0+2)/2*10=10, (2+2)/2*10=20, (2+0)/2*10=10 → 40
+	if total != 40 {
+		t.Fatalf("total=%d want 40 sched=%#v", total, sched)
+	}
+	if dur != 30 {
+		t.Fatalf("dur=%d", dur)
+	}
+	if honesty == "" || !strings.Contains(honesty, "Arrivals") {
+		t.Fatalf("honesty=%q", honesty)
+	}
+	segs := arrivalSegmentsFromSched(sched)
+	if len(segs) != 3 {
+		t.Fatalf("segs=%#v", segs)
+	}
+	sum := 0
+	for _, s := range segs {
+		sum += s.Arrivals
+	}
+	if sum != 40 {
+		t.Fatalf("sum=%d", sum)
+	}
+	jmx := generateJMXFromUpsertEx("arr", "http://127.0.0.1/", "GET", "", 0, dur, json.RawMessage(`[{"type":"http","name":"R","method":"GET","url":"http://127.0.0.1/"}]`), sched)
+	if !strings.Contains(jmx, `LoopController.loops">1`) {
+		t.Fatalf("expected open-model loops=1: %s", jmx[:min(400, len(jmx))])
+	}
+	if !strings.Contains(jmx, "ThreadGroup.delay") {
+		t.Fatal("expected ThreadGroup.delay")
+	}
+	if strings.Count(jmx, "<ThreadGroup ") < 3 {
+		t.Fatalf("expected ≥3 ThreadGroups, got %d", strings.Count(jmx, "<ThreadGroup "))
+	}
+}
+
+func TestScaleArrivalSegments(t *testing.T) {
+	segs := []arrivalSegment{
+		{DelaySec: 0, RampSec: 10, Arrivals: 10},
+		{DelaySec: 10, RampSec: 10, Arrivals: 30},
+	}
+	out := scaleArrivalSegments(segs, 20, 40)
+	sum := 0
+	for _, s := range out {
+		sum += s.Arrivals
+	}
+	if sum != 20 {
+		t.Fatalf("sum=%d out=%#v", sum, out)
+	}
 }
