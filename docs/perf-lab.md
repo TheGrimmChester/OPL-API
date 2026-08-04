@@ -49,19 +49,59 @@ production execution engine.
 | `POST /api/perf/runs/{id}/cancel` | Admin — mark cancelled + best-effort `docker stop` on registered workers |
 | `GET /api/perf/runs/{id}/runners` | Live `docker inspect` status for dispatched containers |
 | `GET /api/perf/runs/{id}/steps` | Per-label aggregates (avg/p95/error_rate) |
-| `GET /api/perf/runs/{id}/report` | Bench report JSON; `?format=csv|html|pdf` |
-| `GET /api/perf/runs/{id}/bench-pack` | ZIP bench pack (JSON + CSV + HTML + PDF + MANIFEST) |
-| `GET /api/perf/scenarios/{id}/trends` | Multi-run trend series (`points`, best/worst p95, SLA breaches); `?limit=` `?sla_p95_ms=` |
+| `GET /api/perf/runs/{id}/report` | Bench report JSON; `?format=csv|html|pdf`; `?template=<id>` applies a saved layout |
+| `GET /api/perf/runs/{id}/bench-pack` | ZIP bench pack (JSON + CSV + HTML + PDF + MANIFEST); `?template=<id>` |
+| `GET /api/perf/scenarios/{id}/trends` | Multi-run trend series (`points`, best/worst p95, SLA breaches); `?limit=` `?sla_p95_ms=` `?template=<id>` |
+| `GET /api/perf/report-templates` | List saved report/trend layouts (`?kind=report|trend`) |
+| `POST /api/perf/report-templates/upsert` | Admin — create/update a layout (`name`, `kind`, `widgets`, `metrics`, `window`, `options`) |
+| `GET /api/perf/report-templates/{id}` | Fetch one layout |
+| `DELETE` / `POST .../report-templates/{id}/archive` | Admin — soft-archive a layout |
+| `GET /api/perf/notifications` | Notification history across runs (`?limit=` `?channel=` `?result=` `?run_id=`) |
+| `GET /api/perf/runs/{id}/notifications` | Per-channel delivery attempts for one run |
+| `POST /api/perf/notifications/test` | Admin — fire a synthetic terminal event through every channel |
 | `POST /api/perf/runs/{id}/metrics` | Runner posts summary + samples |
 | `GET /api/perf/runs/{id}/export-k6` | k6 script export |
 | `GET /api/perf/runs/{id}/gate` | SLA gate (`ok` + `pass` booleans) |
-| `GET /api/health` | Includes `run_notify` (webhook configured / mode; no secrets) |
+| `GET /api/health` | Includes `run_notify` (per-channel configured / mode / redacted target; no secrets) |
 | `POST /api/federation/remote-load` | **Agent** — peer-local load sample (not served here) |
 | `GET /api/performance/baselines` + `/api/performance/gate` | **Agent** — Profiling baselines / gate |
 
 ### Terminal-run notifications
 
-Set `OPL_RUN_WEBHOOK_URL` (compose `.env`) to POST JSON when a run becomes terminal. Filter with `OPL_RUN_NOTIFY_STATUSES` (default all terminal). Use `OPL_RUN_NOTIFY_MODE=log` for safe E2E without outbound HTTP. See [configuration.md](configuration.md).
+Three channels share one terminal-run event and one set of controls:
+
+| Channel | Destination | Configured by |
+|---------|-------------|---------------|
+| `webhook` | raw JSON POST, optionally HMAC-signed | `OPL_RUN_WEBHOOK_URL` (+ `OPL_RUN_WEBHOOK_SECRET`) |
+| `chat` | chat incoming-webhook message payload (`text` + colored attachment) | `OPL_RUN_CHAT_WEBHOOK_URL` |
+| `email` | plain-text SMTP mail | `OPL_RUN_EMAIL_TO` + `OPA_SMTP_HOST` (shared stack SMTP block) |
+
+Filter statuses with `OPL_RUN_NOTIFY_STATUSES` (default all terminal), restrict channels with `OPL_RUN_NOTIFY_CHANNELS`, and use `OPL_RUN_NOTIFY_MODE=log` for safe E2E without outbound HTTP or mail. Keep every URL, secret and recipient list in the compose `.env` — never in git. See [configuration.md](configuration.md).
+
+**A notification is never silently dropped.** Every terminal run writes one history row per channel:
+
+| Result | Meaning |
+|--------|---------|
+| `sent` | the destination accepted the delivery |
+| `failed` | the channel is configured but the destination errored |
+| `logged` | `OPL_RUN_NOTIFY_MODE=log`, or email recipients without an SMTP relay (intentional no-send) |
+| `skipped` | the channel is disabled or has no destination — the `detail` column names the missing setting |
+
+`GET /api/perf/notifications` and `GET /api/perf/runs/{id}/notifications` serve that history; `GET /api/health` `run_notify.channels[]` reports the same configuration state with hosts only (no paths, tokens, passwords or recipient addresses). `POST /api/perf/notifications/test` (admin) fires a synthetic event with zeroed metrics to prove wiring without launching a load run.
+
+### Report and trend templates
+
+A template is a named, org+project-scoped layout stored in `opl.report_templates` (created by `ensurePerfLabSchema`; the hub database is never written):
+
+| Field | Meaning |
+|-------|---------|
+| `kind` | `report` (per-run bench report) or `trend` (multi-run scenario series) |
+| `widgets` | report: `kpis`, `summary`, `steps`, `errors`, `samples` · trend: `kpis`, `latency_band`, `error_bars`, `runs_table` |
+| `metrics` | any of `p50_ms`, `p95_ms`, `p99_ms`, `avg_ms`, `error_rate`, `samples` |
+| `window` | trend: `limit` / `runs` (1–100) and `sla_p95_ms` · report: `sample_cap` |
+| `options` | free-form extras (currently `sample_cap`) |
+
+Unknown widget/metric names are dropped on save, so an export never claims a widget the product cannot render. Pass `?template=<id>` to `runs/{id}/report`, `runs/{id}/bench-pack` or `scenarios/{id}/trends`; the response carries a `template` block and the `X-OPL-Template` header. A template id that is missing, archived or of the wrong kind falls back to the full layout **and says so** in `template_note`. A template only selects what is rendered — it never changes how a run was measured.
 
 ### Nested steps / visual editor backend
 

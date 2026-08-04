@@ -19,7 +19,10 @@ func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, htt
 	authView("/api/perf/runs", handlePerfRunsListOrCreate)
 	authView("/api/perf/runs/", handlePerfRunByID)
 	authView("/api/perf/load-policies", handlePerfLoadPolicies)
+	authView("/api/perf/notifications", handlePerfNotifications)
+	authView("/api/perf/notifications/", handlePerfNotifications)
 	authAdmin("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
+	registerReportTemplateMux(authView, authAdmin)
 	_ = mux
 }
 
@@ -481,6 +484,10 @@ func handlePerfRunByID(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) > 1 && parts[1] == "runners" {
 		handlePerfRunRunners(w, r, id)
+		return
+	}
+	if len(parts) > 1 && parts[1] == "notifications" {
+		handlePerfRunNotifications(w, r, id)
 		return
 	}
 	if queryClient == nil {
