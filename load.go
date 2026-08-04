@@ -475,6 +475,10 @@ func handlePerfRunByID(w http.ResponseWriter, r *http.Request) {
 		handlePerfRunReport(w, r, id)
 		return
 	}
+	if len(parts) > 1 && parts[1] == "bench-pack" {
+		handlePerfRunBenchPack(w, r, id)
+		return
+	}
 	if len(parts) > 1 && parts[1] == "runners" {
 		handlePerfRunRunners(w, r, id)
 		return
