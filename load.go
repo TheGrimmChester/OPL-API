@@ -21,6 +21,8 @@ func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, htt
 	authView("/api/perf/load-policies", handlePerfLoadPolicies)
 	authView("/api/perf/notifications", handlePerfNotifications)
 	authView("/api/perf/notifications/", handlePerfNotifications)
+	authView("/api/perf/schedules", handlePerfSchedules)
+	authView("/api/perf/schedules/", handlePerfSchedules)
 	authAdmin("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
 	registerReportTemplateMux(authView, authAdmin)
 	_ = mux
