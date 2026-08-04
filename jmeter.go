@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -137,6 +138,7 @@ type jmxRegexExtractor struct {
 type jmxCSVDataSet struct {
 	TestName string `xml:"testname,attr"`
 	Props    []jmxProp `xml:"stringProp"`
+	Bools    []jmxBoolProp `xml:"boolProp"`
 }
 
 type jmxConstantTimer struct {
@@ -220,14 +222,7 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 			_ = timers
 			datasets := map[string]interface{}{}
 			for _, c := range csvs {
-				pm := jmxPropMap(c.Props)
-				datasets["csv"] = map[string]interface{}{
-					"filename": pm["filename"],
-					"variableNames": pm["variableNames"],
-					"delimiter": nz(pm["delimiter"], ","),
-					"recycle": pm["recycle"] != "false",
-					"honesty": "CSV path is local to the runner; upload via datasets_json.inline for Agent-hosted runs.",
-				}
+				datasets["csv"] = perfDatasetFromJMXCSVDataSet(c)
 			}
 			if dur <= 0 {
 				dur = 60
@@ -346,14 +341,7 @@ func parseJMXToScenario(raw []byte, name string) (map[string]interface{}, []stri
 
 	datasets := map[string]interface{}{}
 	for _, c := range csvs {
-		pm := jmxPropMap(c.Props)
-		datasets["csv"] = map[string]interface{}{
-			"filename": pm["filename"],
-			"variableNames": pm["variableNames"],
-			"delimiter": nz(pm["delimiter"], ","),
-			"recycle": pm["recycle"] != "false",
-			"honesty": "CSV path is local to the runner; upload via datasets_json.inline for Agent-hosted runs.",
-		}
+		datasets["csv"] = perfDatasetFromJMXCSVDataSet(c)
 	}
 
 	schedule := map[string]interface{}{}
@@ -497,10 +485,11 @@ func handlePerfImportJMX(w http.ResponseWriter, r *http.Request) {
 	dsJSON, _ := json.Marshal(sc["datasets"])
 	slaJSON, _ := json.Marshal(sc["sla"])
 	schedJSON, _ := json.Marshal(sc["schedule"])
+	dataset := perfCSVDatasetFromJSON(string(dsJSON))
 	jmxXML := string(raw)
 	if !strings.Contains(jmxXML, "jmeterTestPlan") {
-		jmxXML = generateJMXFromUpsert(fmt.Sprint(sc["name"]), fmt.Sprint(sc["target_url"]), fmt.Sprint(sc["method"]), "",
-			int(asFloatOr(sc["vus"], 10)), int(asFloatOr(sc["duration_seconds"], 60)), stepsJSON)
+		jmxXML = generateJMXFromUpsertData(fmt.Sprint(sc["name"]), fmt.Sprint(sc["target_url"]), fmt.Sprint(sc["method"]), "",
+			int(asFloatOr(sc["vus"], 10)), int(asFloatOr(sc["duration_seconds"], 60)), stepsJSON, nil, dataset)
 	}
 	if jmxContainsUnsafeElements(jmxXML) {
 		http.Error(w, "jmx contains unsafe JMeter elements; set OPA_PERF_ALLOW_UNSAFE_JMX=1 to override", 400)
@@ -546,6 +535,15 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 	}
 	steps := flattenScenarioSteps(scenarioSteps(sc))
 	vars := map[string]string{}
+	// Seed the dry run with the first dataset row so parameterised requests are exercised
+	// instead of firing literal ${column} text.
+	dataset := perfCSVDatasetFromJSON(getString(sc, "datasets_json"))
+	seeded := []string{}
+	for name, val := range dataset.firstRow() {
+		vars[name] = val
+		seeded = append(seeded, name)
+	}
+	sort.Strings(seeded)
 	results := []map[string]interface{}{}
 	client := perfValidateHTTPClient()
 	for _, step := range steps {
@@ -647,12 +645,36 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 	}
 	pass, triage := triageValidateResults(results)
 	suggestions := suggestAutoCorrelation(results)
-	writeJSON(w, map[string]interface{}{
+	honesty := "1 VU dry-run with triage + auto-correlation suggestions — fix extract/assert/connectivity before dispatching load workers."
+	unbound, resolvable := scenarioUnboundVariables(sc)
+	if len(unbound) > 0 {
+		// A plan that would fire literal ${…} text must not report a clean pass.
+		pass = false
+		triage = append(triage, unboundVariableTriage(unbound))
+		honesty += " Unbound ${…} tokens fail validation instead of burning engine time on literal placeholder requests."
+	} else if !resolvable {
+		honesty += " Dataset points at a runner-local CSV whose columns are unknown here, so ${…} tokens could not be checked."
+	} else {
+		honesty += " No unbound ${…} tokens: every reference resolves to a dataset column, an extractor, or a plan built-in."
+	}
+	out := map[string]interface{}{
 		"ok": pass, "pass": pass, "scenario_id": id, "steps": results,
 		"triage": triage, "correlation_suggestions": suggestions,
 		"vars": scrubValidateVars(vars),
-		"honesty": "1 VU dry-run with triage + auto-correlation suggestions — fix extract/assert/connectivity before dispatching load workers.",
-	})
+		"unbound_variables": unbound,
+		"honesty": honesty,
+	}
+	if !resolvable {
+		out["dataset_columns_unknown"] = true
+	}
+	if dataset != nil {
+		summary := dataset.summary()
+		if len(seeded) > 0 {
+			summary["seeded_variables"] = seeded
+		}
+		out["dataset"] = summary
+	}
+	writeJSON(w, out)
 }
 
 func scrubValidateVars(vars map[string]string) map[string]string {
@@ -801,6 +823,7 @@ func handlePerfExportJMX(w http.ResponseWriter, r *http.Request, id string) {
 		http.Error(w, "not found", 404)
 		return
 	}
+	dataset := perfCSVDatasetFromJSON(getString(sc, "datasets_json"))
 	// Prefer stored jmx_xml (source of truth for Docker runs — includes selector comments, bodies, extractors).
 	jmx := strings.TrimSpace(getString(sc, "jmx_xml"))
 	if jmx == "" {
@@ -811,9 +834,12 @@ func handlePerfExportJMX(w http.ResponseWriter, r *http.Request, id string) {
 		}
 		vus := int(getFloat64(sc, "vus"))
 		dur := int(getFloat64(sc, "duration_seconds"))
-		jmx = generateJMXFromUpsert(getString(sc, "name"), getString(sc, "target_url"), nz(getString(sc, "method"), "GET"),
-			getString(sc, "body"), vus, dur, steps)
+		jmx = generateJMXFromUpsertData(getString(sc, "name"), getString(sc, "target_url"), nz(getString(sc, "method"), "GET"),
+			getString(sc, "body"), vus, dur, steps, nil, dataset)
 	}
+	// Exported plans carry the dataset wiring that matches datasets_json, even when the stored
+	// jmx_xml predates CSVDataSet emission or was saved with different columns.
+	jmx, _ = syncJMXCSVDataSet(jmx, dataset)
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", id+".jmx"))
 	_, _ = w.Write([]byte(jmx))

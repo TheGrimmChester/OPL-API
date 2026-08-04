@@ -24,6 +24,12 @@ func generateJMXFromUpsert(name, targetURL, method, body string, vus, dur int, s
 
 // generateJMXFromUpsertEx builds JMX; when sched has curve_mode=arrivals, emits open-model segments.
 func generateJMXFromUpsertEx(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, sched map[string]interface{}) string {
+	return generateJMXFromUpsertData(name, targetURL, method, body, vus, dur, stepsJSON, sched, nil)
+}
+
+// generateJMXFromUpsertData is the full entry point: it also wires the scenario CSV dataset
+// into the plan so `${column}` tokens are actually bound at run time.
+func generateJMXFromUpsertData(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, sched map[string]interface{}, ds *perfCSVDataset) string {
 	if curveModeFromSchedule(sched) == "arrivals" {
 		curve := parseCurveFromSchedule(sched)
 		if len(curve) > 0 {
@@ -31,10 +37,10 @@ func generateJMXFromUpsertEx(name, targetURL, method, body string, vus, dur int,
 		}
 		segs := arrivalSegmentsFromSched(sched)
 		if len(segs) > 0 {
-			return generateJMXArrivalsFromUpsert(name, targetURL, method, body, stepsJSON, segs, dur)
+			return generateJMXArrivalsFromUpsert(name, targetURL, method, body, stepsJSON, segs, dur, ds)
 		}
 	}
-	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON)
+	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON, ds)
 }
 
 func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
@@ -62,7 +68,7 @@ func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
 	return out
 }
 
-func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage) string {
+func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, ds *perfCSVDataset) string {
 	var steps []map[string]interface{}
 	_ = json.Unmarshal(stepsJSON, &steps)
 	if len(steps) == 0 {
@@ -78,6 +84,7 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
 	}
 	var b strings.Builder
 	writeJMXPlanOpen(&b, name)
+	writeJMXCSVDataSet(&b, ds, "      ")
 	b.WriteString(fmt.Sprintf(`      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="VUs" enabled="true">
         <stringProp name="ThreadGroup.num_threads">%d</stringProp>
         <stringProp name="ThreadGroup.ramp_time">10</stringProp>
@@ -100,7 +107,7 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
 }
 
 // generateJMXArrivalsFromUpsert emits one stock ThreadGroup per arrival segment (open model, loops=1).
-func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJSON json.RawMessage, segs []arrivalSegment, curveDur int) string {
+func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJSON json.RawMessage, segs []arrivalSegment, curveDur int, ds *perfCSVDataset) string {
 	var steps []map[string]interface{}
 	_ = json.Unmarshal(stepsJSON, &steps)
 	if len(steps) == 0 {
@@ -114,6 +121,8 @@ func generateJMXArrivalsFromUpsert(name, targetURL, method, body string, stepsJS
 	}
 	var b strings.Builder
 	writeJMXPlanOpen(&b, name)
+	// Test Plan level: one shared iterator for every arrival segment's threads.
+	writeJMXCSVDataSet(&b, ds, "      ")
 	frags := indexFragmentsByName(steps)
 	for si, seg := range segs {
 		if seg.Arrivals <= 0 {
@@ -535,14 +544,19 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 	if len(steps) == 0 {
 		steps = json.RawMessage(`[]`)
 	}
+	dataset := perfCSVDatasetFromJSON(getString(sc, "datasets_json"))
 	// Arrivals mode always regenerates open-model JMX from steps (ignore stale classic jmx_xml).
 	if arrivalsMode {
-		jmx = generateJMXFromUpsertEx(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
-			vus, dur, steps, schedMap)
+		jmx = generateJMXFromUpsertData(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
+			vus, dur, steps, schedMap, dataset)
 	} else if strings.TrimSpace(jmx) == "" {
-		jmx = generateJMXFromUpsert(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
-			vus, dur, steps)
+		jmx = generateJMXFromUpsertData(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
+			vus, dur, steps, nil, dataset)
 	}
+	// Plans stored before the engine emitted CSVDataSet (and raw imported JMX) get the element
+	// wired in here — otherwise the data file is written but never read. An element that is
+	// already there is re-emitted from datasets_json so the run matches the saved dataset.
+	jmx, datasetInjected := syncJMXCSVDataSet(jmx, dataset)
 	if jmxContainsUnsafeElements(jmx) {
 		return map[string]interface{}{"dispatched": false, "error": "jmx contains unsafe elements"}
 	}
@@ -550,17 +564,7 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 	root := perfJMeterWorkRoot()
 	workerDirs := make([]string, 0, nWorkers)
 	workerVUs := splitVUsAcrossWorkers(vus, nWorkers)
-	csvInline := ""
-	if ds := getString(sc, "datasets_json"); ds != "" {
-		var m map[string]interface{}
-		if json.Unmarshal([]byte(ds), &m) == nil {
-			if csvBlock, ok := m["csv"].(map[string]interface{}); ok {
-				if inline, ok := csvBlock["inline"].(string); ok {
-					csvInline = inline
-				}
-			}
-		}
-	}
+	datasetSharded := false
 
 	for i := 0; i < nWorkers; i++ {
 		rel := runID
@@ -575,15 +579,19 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 		if arrivalsMode && nWorkers > 1 {
 			workerSegs := scaleArrivalSegments(arrivalSegmentsFromSched(schedMap), workerVUs[i], vus)
 			workerJMX = generateJMXArrivalsFromUpsert(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
-				steps, workerSegs, dur)
+				steps, workerSegs, dur, dataset)
 		} else if !arrivalsMode {
 			workerJMX = rewriteJMXThreadCount(jmx, workerVUs[i])
 		}
 		if err := os.WriteFile(filepath.Join(dir, "plan.jmx"), []byte(workerJMX), 0o600); err != nil {
 			return map[string]interface{}{"dispatched": false, "error": err.Error()}
 		}
-		if csvInline != "" {
-			_ = os.WriteFile(filepath.Join(dir, "data.csv"), []byte(csvInline), 0o600)
+		// data.csv is written with the scenario delimiter and matches the emitted CSVDataSet.
+		if content, sharded := dataset.workerCSV(i, nWorkers); content != "" {
+			if err := os.WriteFile(filepath.Join(dir, perfCSVDataFile), []byte(content), 0o600); err != nil {
+				return map[string]interface{}{"dispatched": false, "error": err.Error()}
+			}
+			datasetSharded = datasetSharded || sharded
 		}
 		workerDirs = append(workerDirs, dir)
 	}
@@ -699,12 +707,30 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 		clearRunContainers(runID)
 	}()
 
-	return map[string]interface{}{
+	out := map[string]interface{}{
 		"dispatched": true, "engine": "jmeter", "mode": mode,
 		"workers": nWorkers, "worker_vus": workerVUs, "image": image,
 		"containers": containerNames, "work_dirs": workerDirs,
 		"honesty": "Ephemeral Apache JMeter container(s); JTL merged into load_run_samples. Host bin is OPA_PERF_ALLOW_HOST_JMETER=1 only.",
 	}
+	if dataset != nil {
+		out["dataset"] = dataset.summary()
+		out["dataset_injected"] = datasetInjected
+		out["dataset_sharded"] = datasetSharded
+		if datasetSharded {
+			out["dataset_honesty"] = fmt.Sprintf("data.csv rows sharded round-robin across %d worker(s) so each row is used once per pass.", nWorkers)
+		} else if nWorkers > 1 && dataset.rowCount() > 0 {
+			out["dataset_honesty"] = "Fewer rows than workers — every worker got the full data.csv, so rows repeat across containers."
+		}
+	}
+	if unbound, resolvable := scenarioUnboundVariables(sc); len(unbound) > 0 {
+		out["unbound_variables"] = unbound
+		out["warning"] = "Unbound ${…} tokens will be sent as literal text: " + strings.Join(unbound, ", ")
+	} else if !resolvable {
+		out["unbound_variables"] = []string{}
+		out["dataset_columns_unknown"] = true
+	}
+	return out
 }
 
 // splitVUsAcrossWorkers distributes VUs as evenly as possible across N workers.

@@ -45,7 +45,7 @@ production execution engine.
 | `GET /api/perf/scenarios?archived=1` | List soft-archived scenarios |
 | `POST .../scenarios/{id}/duplicate` | Clone scenario (optional `{name}`) |
 | `POST .../scenarios/{id}/schedule` | Patch `schedule_json` (`enabled`, `every_minutes`, `daily_at`, optional `curve`) |
-| `POST .../scenarios/{id}/validate` | 1 VU dry-run; `ok`/`pass` + `triage[]` + `correlation_suggestions[]` |
+| `POST .../scenarios/{id}/validate` | 1 VU dry-run seeded with the first dataset row; `ok`/`pass` + `triage[]` + `correlation_suggestions[]` + `unbound_variables[]` + `dataset` |
 | `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
 | `POST /api/perf/scenarios/import-postman` | Postman Collection v2/v2.1 → HTTP steps |
@@ -112,6 +112,16 @@ Unknown widget/metric names are dropped on save, so an export never claims a wid
 ### Nested steps / visual editor backend
 
 `steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). `include`/`link` expands a named fragment at validate/JMX emit. JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController` / disabled `GenericController` for fragments); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+
+### Parameterised data
+
+`datasets_json.csv` (`variableNames`, `delimiter`, inline rows or a runner-local `filename`) is emitted
+as a `CSVDataSet` at Test Plan level, so `${column}` binds at run time. The configured delimiter drives
+both the `data.csv` written next to `plan.jmx` and the element in the plan. Validate lists every `${…}`
+token that no column, extractor, ForEach variable, raw-JMX `Argument.name`, or plan built-in can bind in
+`unbound_variables[]` and fails — a plan that would send literal `${…}` text never reports a clean pass.
+Defaults (`recycle=true`, `stopThread=false`, `shareMode.all`, `quotedData=true`) and worker sharding are
+documented in [jmeter-perf.md](jmeter-perf.md#parameterised-data-csv).
 
 ### Custom load curve
 
