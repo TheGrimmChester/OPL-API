@@ -5,6 +5,7 @@ Go API for **Open Perf Lab** — load scenarios, runs, HAR/JMX import, and Docke
 | Port (smoke) | Service |
 |---|---|
 | **8092** | `opl-api` |
+| 8097 | `opl-orchestrator` (same binary, `orchestrator` command — leased schedule dispatch + run reaper) |
 | 8080 | `opa-hub` / `opa-agent` |
 | 8091 | `ora-api` |
 | 8093 | `osa-api` |
