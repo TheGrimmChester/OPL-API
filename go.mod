@@ -11,6 +11,7 @@ require (
 	github.com/TheGrimmChester/open-clickhouse-go v0.2.0
 	github.com/TheGrimmChester/open-http-go v0.0.0-00010101000000-000000000000
 	github.com/TheGrimmChester/open-job-go v0.0.0
+	github.com/TheGrimmChester/open-logger-go v0.0.0
 	github.com/TheGrimmChester/open-tenant-go v0.2.0
 )
 
@@ -23,3 +24,5 @@ replace github.com/TheGrimmChester/open-tenant-go => ../Open-Tenant-Go
 replace github.com/TheGrimmChester/open-clickhouse-go => ../Open-ClickHouse-Go
 
 replace github.com/TheGrimmChester/open-http-go => ../Open-HTTP-Go
+
+replace github.com/TheGrimmChester/open-logger-go => ../Open-Logger-Go
