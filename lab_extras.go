@@ -376,6 +376,14 @@ func fireDueSchedules() {
 					"started_at": ts, "finished_at": ts, "summary_json": string(sum), "error": runErr,
 				})
 				writer.insertAsync("load_runs", append(fix, '\n'))
+				if runStatusTerminal(runStatus) {
+					notifyRunTerminal(runNotifyEvent{
+						RunID: runID, ScenarioID: scnID, OrganizationID: org, ProjectID: proj,
+						Status: runStatus, VUs: vus, Error: runErr,
+						Summary: map[string]interface{}{"scheduled": true, "dispatch_error": runErr},
+						FinishedAt: ts, Source: "scheduler",
+					})
+				}
 			}
 		}
 		sched["last_fired_at"] = now.Format(time.RFC3339)
@@ -622,6 +630,12 @@ func handlePerfImportJTL(w http.ResponseWriter, r *http.Request) {
 	for _, s := range samples {
 		samp, _ := json.Marshal(s)
 		writer.insertAsync("load_run_samples", append(samp, '\n'))
+	}
+	if runStatusTerminal(status) {
+		notifyRunTerminal(runNotifyEvent{
+			RunID: runID, ScenarioID: scenarioID, OrganizationID: org, ProjectID: proj,
+			Status: status, Summary: summary, FinishedAt: now, Source: "import-jtl",
+		})
 	}
 	steps := aggregateRunSteps(samples)
 	writeJSON(w, map[string]interface{}{

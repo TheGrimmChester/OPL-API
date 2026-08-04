@@ -691,6 +691,11 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 				writer.insertAsync("load_run_samples", append(samp, '\n'))
 			}
 		}
+		notifyRunTerminal(runNotifyEvent{
+			RunID: runID, ScenarioID: scenarioID, OrganizationID: org, ProjectID: proj,
+			Status: status, VUs: vus, Error: strings.Join(reasons, "; "), Summary: mergedSummary,
+			FinishedAt: now, Source: "jmeter",
+		})
 		clearRunContainers(runID)
 	}()
 

@@ -55,11 +55,12 @@ func main() {
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{
-			"status":    "ok",
-			"service":   "opl-api",
-			"version":   buildVersion,
-			"database":  clickHouseDatabase(),
-			"auth_mode": string(authMode),
+			"status":     "ok",
+			"service":    "opl-api",
+			"version":    buildVersion,
+			"database":   clickHouseDatabase(),
+			"auth_mode":  string(authMode),
+			"run_notify": runNotifyStatusInfo(),
 		})
 	})
 	registerLocalAuthMux(mux)

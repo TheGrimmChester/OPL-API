@@ -377,6 +377,13 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 				"started_at": now, "finished_at": fix, "summary_json": string(sumBytes), "error": runErr,
 			})
 			writer.insertAsync("load_runs", append(fixPayload, '\n'))
+			if runStatusTerminal(runStatus) {
+				notifyRunTerminal(runNotifyEvent{
+					RunID: id, ScenarioID: body.ScenarioID, OrganizationID: org, ProjectID: proj,
+					Status: runStatus, VUs: vus, Error: runErr, Summary: summaryObj,
+					FinishedAt: fix, Source: "dispatch",
+				})
+			}
 		} else if runStatus == "running" && writer != nil {
 			if names := containerNamesFromAny(dispatchInfo["containers"]); len(names) > 0 {
 				summaryObj := map[string]interface{}{
@@ -530,6 +537,12 @@ func handlePerfRunCancel(w http.ResponseWriter, r *http.Request, id string) {
 		"summary_json": summary, "error": "cancelled by user",
 	})
 	writer.insertAsync("load_runs", append(payload, '\n'))
+	notifyRunTerminal(runNotifyEvent{
+		RunID: id, ScenarioID: getString(rows[0], "scenario_id"),
+		OrganizationID: org, ProjectID: proj, Status: "cancelled",
+		VUs: int(getFloat64(rows[0], "vus")), Error: "cancelled by user",
+		Summary: parseSummaryLoose(summary), FinishedAt: now, Source: "cancel",
+	})
 	stopped := stopRunContainers(id)
 	writeJSON(w, map[string]interface{}{
 		"ok": true, "id": id, "status": "cancelled", "containers_stopped": stopped,
@@ -687,6 +700,13 @@ func handlePerfRunMetrics(w http.ResponseWriter, r *http.Request, id string) {
 			})
 			writer.insertAsync("load_run_samples", append(samp, '\n'))
 		}
+	}
+	if runStatusTerminal(status) {
+		notifyRunTerminal(runNotifyEvent{
+			RunID: id, ScenarioID: scenarioID, OrganizationID: org, ProjectID: proj,
+			Status: status, VUs: body.VUs, Error: errMsg, Summary: summary,
+			FinishedAt: now, Source: "metrics",
+		})
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "id": id, "status": status})
 }
