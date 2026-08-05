@@ -3,3 +3,7 @@
 *.exe
 *.test
 /tmp/
+# Local module workspace: points go at sibling family checkouts. Never
+# committed — CI must resolve go.mod from the module proxy. See docs/go-modules.md.
+/go.work
+/go.work.sum
