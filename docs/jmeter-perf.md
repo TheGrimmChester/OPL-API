@@ -131,6 +131,12 @@ unknown here and the response says so (`dataset_columns_unknown`) instead of gue
 Validate also seeds its 1 VU dry-run with the **first data row**, so parameterised requests are
 actually exercised rather than sent with placeholders.
 
+The dry-run only sends requests for steps that *are* requests. Logic controllers
+(`if` / `while` / `loop` / `foreach`) are reported as journey structure with their condition, loop count or
+input variable and issue nothing — see
+[perf-lab.md](perf-lab.md#nested-steps--visual-editor-backend). So the request count a validate puts on the
+target is the number of HTTP steps in the journey, not the number of nodes in its tree.
+
 ## Scale
 
 `workers` (or `OPA_JMETER_WORKERS`) splits VUs across N ephemeral containers sharing the same `load_run_id`. Federation `fanout` still means peer agents, not a global load cloud.

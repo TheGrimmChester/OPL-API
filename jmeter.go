@@ -560,6 +560,13 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 		if typ == "" {
 			typ = "http"
 		}
+		if isPerfControllerMarkerType(typ) {
+			// A logic controller is journey structure, not a sampler. Report the shape
+			// it was designed with and fire nothing: the steps it wraps are already in
+			// the flat list and are exercised on their own.
+			results = append(results, perfControllerMarker(typ, step))
+			continue
+		}
 		switch typ {
 		case "extract":
 			// Apply against last body stored in vars["_body"]
@@ -741,6 +748,37 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 		out["dataset"] = summary
 	}
 	writeJSON(w, out)
+}
+
+// perfControllerMarker describes a logic controller in validate output. A controller
+// decides which of its children run and how often — it is not a request — so the dry
+// run reports the branch condition, loop count or input variable it was designed with
+// and issues nothing. Apache JMeter evaluates the controller itself under load; the 1 VU
+// dry run walks the wrapped steps once each, in flat order, below this entry.
+func perfControllerMarker(typ string, step map[string]interface{}) map[string]interface{} {
+	entry := map[string]interface{}{"type": typ, "name": step["name"], "ok": true}
+	switch typ {
+	case "if", "if_controller", "while", "while_controller":
+		if cond := strings.TrimSpace(getString(step, "condition")); cond != "" {
+			entry["condition"] = cond
+		}
+	case "loop", "loop_controller":
+		if n, ok := asFloat(step["loops"]); ok && int(n) > 0 {
+			entry["loops"] = int(n)
+		}
+		if forever, ok := step["forever"].(bool); ok && forever {
+			entry["forever"] = true
+		}
+	case "foreach", "foreach_controller", "for_each":
+		if v := strings.TrimSpace(getString(step, "input_var")); v != "" {
+			entry["input_var"] = v
+		}
+		if v := strings.TrimSpace(getString(step, "return_var")); v != "" {
+			entry["return_var"] = v
+		}
+	}
+	entry["note"] = "logic controller — journey structure, not a sample: a 1 VU dry run does not evaluate the branch or iteration count (Apache JMeter does that under load), and the steps it wraps are reported below it"
+	return entry
 }
 
 func scrubValidateVars(vars map[string]string) map[string]string {
