@@ -126,6 +126,22 @@ Unknown widget/metric names are dropped on save, so an export never claims a wid
 
 `steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
 
+**A logic controller is structure, not a sample.** Flattening keeps `if` / `while` / `loop` / `foreach` (also
+`if_controller` / `while_controller` / `loop_controller` / `foreach_controller` / `for_each`) in the flat list
+as markers so the journey shape stays visible, and the 1 VU dry-run **reports them without issuing a
+request**:
+
+| Controller | Reported on the validate step |
+| --- | --- |
+| `if` / `while` | `condition` |
+| `loop` | `loops`, `forever` |
+| `foreach` | `input_var`, `return_var` |
+
+Each marker carries `ok: true` and a `note`: a dry run does not decide the branch or the iteration count —
+Apache JMeter does that under load — so a controller has no status code and no latency. The steps it wraps
+follow it as their own flat entries and are exercised **once each**, whatever the loop count says. A marker
+never reaches `triage[]` or `correlation_suggestions[]`, which only consider real samples.
+
 ### Reusable journey modules
 
 A `fragment` step is a definition, not part of the flow. Each one is hoisted to Test Plan level as a
