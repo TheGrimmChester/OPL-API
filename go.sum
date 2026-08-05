@@ -1,5 +1,5 @@
-github.com/TheGrimmChester/open-auth-go v0.0.0-20260804130009-bc589c3d949d h1:K1MUeSyvC8t2ov61BodLND+J5X8ENIgS6AyY9wZ6pWk=
-github.com/TheGrimmChester/open-auth-go v0.0.0-20260804130009-bc589c3d949d/go.mod h1:zrRjiZEGMEZ3S8mbUZWsZfCll5vBOOjJI15NhAzLKug=
+github.com/TheGrimmChester/open-auth-go v0.0.0-20260805140119-f8f106b388fb h1:mHvI0+Mi8xs4Mvqs3QBlJ4ZHjJ0tw6FB4FHvimlKed8=
+github.com/TheGrimmChester/open-auth-go v0.0.0-20260805140119-f8f106b388fb/go.mod h1:zrRjiZEGMEZ3S8mbUZWsZfCll5vBOOjJI15NhAzLKug=
 github.com/TheGrimmChester/open-clickhouse-go v0.2.0 h1:xEbeefkQvBR0SlWUHwKxZAPVW7dExVMKswZjBwnrOZc=
 github.com/TheGrimmChester/open-clickhouse-go v0.2.0/go.mod h1:bwLzOyXCShpag7Cx7P7vYUBdAHO8oMNhNd2xfy3APiI=
 github.com/TheGrimmChester/open-http-go v0.0.0-20260804055231-a9462e336412 h1:UnUrc7y/28FUX+nBYTwbfmDJd+lUvsxbBLR5xN1S3SM=

@@ -13,7 +13,7 @@ go 1.25.0
 // resolves anywhere. To develop against live sibling checkouts, create a
 // go.work (gitignored) — see docs/go-modules.md.
 require (
-	github.com/TheGrimmChester/open-auth-go v0.0.0-20260804130009-bc589c3d949d
+	github.com/TheGrimmChester/open-auth-go v0.0.0-20260805140119-f8f106b388fb
 	github.com/TheGrimmChester/open-clickhouse-go v0.2.0
 	github.com/TheGrimmChester/open-http-go v0.0.0-20260804055231-a9462e336412
 	github.com/TheGrimmChester/open-job-go v0.0.0-20260803091535-04d163946627
