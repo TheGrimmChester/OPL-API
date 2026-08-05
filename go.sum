@@ -1,2 +1,14 @@
+github.com/TheGrimmChester/open-auth-go v0.0.0-20260804130009-bc589c3d949d h1:K1MUeSyvC8t2ov61BodLND+J5X8ENIgS6AyY9wZ6pWk=
+github.com/TheGrimmChester/open-auth-go v0.0.0-20260804130009-bc589c3d949d/go.mod h1:zrRjiZEGMEZ3S8mbUZWsZfCll5vBOOjJI15NhAzLKug=
+github.com/TheGrimmChester/open-clickhouse-go v0.2.0 h1:xEbeefkQvBR0SlWUHwKxZAPVW7dExVMKswZjBwnrOZc=
+github.com/TheGrimmChester/open-clickhouse-go v0.2.0/go.mod h1:bwLzOyXCShpag7Cx7P7vYUBdAHO8oMNhNd2xfy3APiI=
+github.com/TheGrimmChester/open-http-go v0.0.0-20260804055231-a9462e336412 h1:UnUrc7y/28FUX+nBYTwbfmDJd+lUvsxbBLR5xN1S3SM=
+github.com/TheGrimmChester/open-http-go v0.0.0-20260804055231-a9462e336412/go.mod h1:tlrbASpDDFqFkp2839DEkEzDjZ2mo4ZQiJ5AKGC05qo=
+github.com/TheGrimmChester/open-job-go v0.0.0-20260803091535-04d163946627 h1:SoepdoVShSEjVKYiF5iWg7ZK8Hns+M2PDLr1u4DL/S8=
+github.com/TheGrimmChester/open-job-go v0.0.0-20260803091535-04d163946627/go.mod h1:m8yuLHSqPqouN6DQGSx4vfGNsSxzkCfs1qvcJJh5NtU=
+github.com/TheGrimmChester/open-logger-go v0.2.0 h1:WKEdDeLCKWrAA7muEnRlbXvg9BL0IZSJJO+tWj8Ydfg=
+github.com/TheGrimmChester/open-logger-go v0.2.0/go.mod h1:Yyj/SD2lr1pbo+Uawlfa4JvSNiEheYx2T1xzrq9XYL8=
+github.com/TheGrimmChester/open-tenant-go v0.2.2 h1:TU2OsQ0CzLzyyk2u8FpvJkujmr/ekqbN1Jv0/rfs8Ro=
+github.com/TheGrimmChester/open-tenant-go v0.2.2/go.mod h1:d1e0EyIZal6Wr9pFQxjqJ65gYpE46EzEQK+PKoiQNnk=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
