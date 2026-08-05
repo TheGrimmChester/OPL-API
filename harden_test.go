@@ -1,9 +1,63 @@
 package main
 
 import (
+	"net"
 	"strings"
 	"testing"
 )
+
+// pinPerfDNS pins hostname→IP resolution for the duration of the test so the SSRF
+// guard can be exercised with no DNS at all (the OPA Checkup sandbox runs on an
+// internal network with an egress allowlist and no general DNS). Hosts absent from
+// the map resolve as NXDOMAIN. This stubs only the lookup — ipBlockedForPerf still
+// decides what is allowed, so a pinned private address is still rejected.
+//
+// 192.0.2.0/24 (RFC 5737 TEST-NET-1) is the stand-in for "a public address": it is
+// not loopback/private/link-local, so it survives the guard, and it is reserved for
+// documentation so nothing ever dials it for real.
+func pinPerfDNS(t *testing.T, hosts map[string]string) {
+	t.Helper()
+	pinned := make(map[string][]net.IP, len(hosts))
+	for host, addr := range hosts {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			t.Fatalf("pinPerfDNS: %q is not a valid IP (host %q)", addr, host)
+		}
+		pinned[strings.ToLower(strings.TrimSpace(host))] = []net.IP{ip}
+	}
+	prev := perfLookupIP
+	t.Cleanup(func() { perfLookupIP = prev })
+	perfLookupIP = func(host string) ([]net.IP, error) {
+		if ips, ok := pinned[strings.ToLower(strings.TrimSpace(host))]; ok {
+			return ips, nil
+		}
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+}
+
+// TestResolveAllowedPerfHostPinned locks in that pinning the resolver does not soften
+// the guard: a host resolving into a private range is still refused. If someone ever
+// "fixes" an offline test by loosening ipBlockedForPerf, this fails.
+func TestResolveAllowedPerfHostPinned(t *testing.T) {
+	pinPerfDNS(t, map[string]string{
+		"public.test":   "192.0.2.10",
+		"internal.test": "10.1.2.3",
+		"metadata.test": "169.254.169.254",
+	})
+
+	ips, err := resolveAllowedPerfHost("public.test")
+	if err != nil || len(ips) != 1 || ips[0].String() != "192.0.2.10" {
+		t.Fatalf("public host: ips=%v err=%v", ips, err)
+	}
+	for _, host := range []string{"internal.test", "metadata.test"} {
+		if _, err := resolveAllowedPerfHost(host); err == nil {
+			t.Fatalf("%s: expected private/link-local rejection, got nil", host)
+		}
+	}
+	if _, err := resolveAllowedPerfHost("unpinned.test"); err == nil {
+		t.Fatal("unresolvable host: expected error, got nil")
+	}
+}
 
 func TestInitialLoadRunStatus(t *testing.T) {
 	st, err := initialLoadRunStatus(false, map[string]interface{}{"dispatched": false})

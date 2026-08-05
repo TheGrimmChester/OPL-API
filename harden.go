@@ -223,6 +223,12 @@ func perfInternalHostAllowed(host string) bool {
 	return false
 }
 
+// perfLookupIP is the resolver used by resolveAllowedPerfHost. It is a variable only
+// so tests can pin hostname→IP without public DNS (the OPA Checkup sandbox has none);
+// production always uses net.LookupIP. Stubbing it does not relax the guard — every
+// returned IP still goes through ipBlockedForPerf below.
+var perfLookupIP = net.LookupIP
+
 // resolveAllowedPerfHost looks up host and returns only non-blocked IPs (for dial pinning).
 func resolveAllowedPerfHost(host string) ([]net.IP, error) {
 	host = strings.TrimSpace(host)
@@ -244,7 +250,7 @@ func resolveAllowedPerfHost(host string) ([]net.IP, error) {
 		}
 		return []net.IP{ip}, nil
 	}
-	ips, err := net.LookupIP(host)
+	ips, err := perfLookupIP(host)
 	if err != nil {
 		return nil, fmt.Errorf("dns lookup failed")
 	}
