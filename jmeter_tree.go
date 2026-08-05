@@ -40,16 +40,43 @@ func stepChildren(step map[string]interface{}) []map[string]interface{} {
 	}
 }
 
-func isLogicControllerType(typ string) bool {
+// isPerfControllerMarkerType reports whether a step type is a logic controller that
+// flattenScenarioSteps keeps in the flat list as a structural marker. Both the flatten
+// walk and the validate dry run read this one list, so a controller can never be
+// mistaken for a sampler and fired as a request.
+func isPerfControllerMarkerType(typ string) bool {
 	switch typ {
 	case "if", "if_controller", "while", "while_controller", "loop", "loop_controller",
-		"foreach", "foreach_controller", "for_each",
-		"fragment", "include", "link",
-		"container", "transaction":
+		"foreach", "foreach_controller", "for_each":
 		return true
 	default:
 		return false
 	}
+}
+
+func isLogicControllerType(typ string) bool {
+	if isPerfControllerMarkerType(typ) {
+		return true
+	}
+	switch typ {
+	case "fragment", "include", "link", "container", "transaction":
+		return true
+	default:
+		return false
+	}
+}
+
+// cloneStepDroppingChildren copies a step without its children[], so a flattened entry
+// cannot be read as still owning the subtree that now follows it in flat order.
+func cloneStepDroppingChildren(s map[string]interface{}) map[string]interface{} {
+	clone := map[string]interface{}{}
+	for k, v := range s {
+		if k == "children" {
+			continue
+		}
+		clone[k] = v
+	}
+	return clone
 }
 
 // indexFragmentsByName walks a VU tree and maps fragment name → node.
@@ -200,6 +227,13 @@ func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface
 				typ = "http"
 			}
 			kids := stepChildren(s)
+			if isPerfControllerMarkerType(typ) {
+				// A logic controller stays in the flat list as a structural marker so
+				// validate can report the journey shape; the steps it wraps follow it.
+				out = append(out, cloneStepDroppingChildren(s))
+				walk(kids)
+				continue
+			}
 			switch typ {
 			case "fragment":
 				// Definition only — reached through include/link, not executed inline.
@@ -233,26 +267,8 @@ func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface
 					"type": "transaction", "name": s["name"], "ok": true,
 				})
 				walk(kids)
-			case "if", "if_controller", "while", "while_controller", "loop", "loop_controller",
-				"foreach", "foreach_controller", "for_each":
-				clone := map[string]interface{}{}
-				for k, v := range s {
-					if k == "children" {
-						continue
-					}
-					clone[k] = v
-				}
-				out = append(out, clone)
-				walk(kids)
 			case "http":
-				clone := map[string]interface{}{}
-				for k, v := range s {
-					if k == "children" {
-						continue
-					}
-					clone[k] = v
-				}
-				out = append(out, clone)
+				out = append(out, cloneStepDroppingChildren(s))
 				walk(kids)
 			default:
 				out = append(out, s)
