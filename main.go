@@ -67,6 +67,7 @@ func main() {
 
 	registerPerfLabMux(mux, authView, authAdmin)
 	registerJMeterMux(mux, authView, authAdmin)
+	registerPeerSCMMux(mux)
 
 	srv := &http.Server{
 		Addr:              addr,

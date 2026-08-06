@@ -20,7 +20,18 @@ User JWTs and standalone `/api/auth/*` come from **Open-Auth-Go** (`Gate`); this
 | **Standalone** | `opl-api` issues JWTs locally. Lab admin: `admin`/`admin`. |
 | **Co-deployed** | Share `JWT_SECRET` with **OPA-Hub**; hub issues; `opl-api` validates. |
 
-Scopes typically used: `ingest:load_run`, `traces:read`, `health:read`.
+Scopes typically used: `ingest:load_run`, `traces:read`, `health:read`, `scm:events` (ORA SCM checker fan-out).
+
+## SCM checker peer (stub)
+
+ORA fans out GitHub SCM envelopes to compatible products. OPL exposes:
+
+```
+POST /api/peer/scm/events   (service JWT, scope scm:events, aud=opl-api)
+→ { "checkers": [] }
+```
+
+Future checker **`opl:perf-gate`**: trigger when JMX/HAR/scenario paths change; run scenario via existing OPL run API. Family contract: [OPA-Stack interop — SCM checker platform](https://github.com/TheGrimmChester/OPA-Stack/blob/main/docs/interop.md#scm-checker-platform).
 
 OPL writes product tables into `CLICKHOUSE_DB` (default `opl`). Hub org/project/API-key lookups use database `opa`.
 

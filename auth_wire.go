@@ -37,6 +37,10 @@ func AuthMiddleware(handler http.HandlerFunc, requiredRole string) http.HandlerF
 	return authGate.Middleware(requiredRole, handler)
 }
 
+func AuthUserOrServiceMiddleware(handler http.HandlerFunc, requiredRole, requiredServiceScope string) http.HandlerFunc {
+	return authGate.UserOrServiceMiddleware(requiredRole, requiredServiceScope, handler)
+}
+
 func hasPermission(userRole, requiredRole string) bool {
 	return openauth.HasPermission(userRole, requiredRole)
 }
