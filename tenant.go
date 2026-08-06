@@ -93,6 +93,14 @@ func TenantMiddleware(handler http.HandlerFunc, queryClient *ClickHouseQuery) ht
 			return
 		}
 
+		// When OAM owns the directory, tenant headers come from JWT-bound auth
+		// middleware — skip opa.* existence checks that predate OAM wiring.
+		if oamDirectoryConfigured() {
+			AddTenantContext(r, ctx)
+			handler(w, r)
+			return
+		}
+
 		query := fmt.Sprintf("SELECT org_id FROM %s WHERE org_id = '%s' LIMIT 1",
 			hubTable("organizations"), escapeSQL(ctx.OrganizationID))
 		rows, err := queryClient.Query(query)

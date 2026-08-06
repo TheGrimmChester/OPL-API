@@ -65,6 +65,7 @@ func main() {
 	})
 	registerLocalAuthMux(mux)
 
+	registerHubOAMMux(mux, authView)
 	registerPerfLabMux(mux, authView, authAdmin)
 	registerJMeterMux(mux, authView, authAdmin)
 	registerPeerSCMMux(mux)

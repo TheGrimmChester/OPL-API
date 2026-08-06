@@ -22,3 +22,5 @@ require (
 )
 
 require github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
+
+replace github.com/TheGrimmChester/open-auth-go => ../Open-Auth-Go
