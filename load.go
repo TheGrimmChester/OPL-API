@@ -283,6 +283,10 @@ func handlePerfRunsListOrCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, _ := ExtractTenantContext(r, queryClient)
 	org, proj := ctx.WriteTenant()
 	if r.Method == http.MethodPost {
+		if st, msg := requireEnabledOAMProject(r, "opl"); st != 0 {
+			http.Error(w, msg, st)
+			return
+		}
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body struct {
 			ScenarioID string          `json:"scenario_id"`

@@ -25,6 +25,7 @@ func main() {
 	queryClient = NewClickHouseQuery(chURL)
 	ensureClickHouseDatabase(queryClient)
 	ensurePerfLabSchema(queryClient)
+	initSecurityCache()
 	initFederationPeers()
 	initAuthMode()
 	startPerfScheduler()

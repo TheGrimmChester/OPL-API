@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -302,6 +303,9 @@ func notifyRunTerminal(evt runNotifyEvent) {
 	}
 	key := evt.RunID + "|" + evt.Status
 	if evt.RunID != "" {
+		if runNotifyDedupSeen(context.Background(), evt.RunID, evt.Status) {
+			return
+		}
 		if _, loaded := runNotifyOnceDedup.LoadOrStore(key, struct{}{}); loaded {
 			return
 		}

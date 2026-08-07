@@ -3,6 +3,7 @@
 | Variable | Purpose |
 |----------|---------|
 | `PEER_OPA_URL` | OPA hub for optional `load_run_id` correlation; selects co-deployed auth when `AUTH_MODE` unset |
+| `PEER_OAM_URL` | OAM directory for `GET /api/oam/projects?product=opl` (family switcher); enablement writes stay on OAM. `POST /api/perf/runs` fail-closed when a concrete `X-Project-ID` is absent from that filtered list (skip when unset or project empty/`all`). Scenario upsert alone is not gated — run create is the job gate. |
 | `PEER_ORA_URL` | Optional ORA base URL |
 | `PEER_OSA_URL` | Optional OSA base URL |
 | `OPEN_SERVICE_JWT_SECRET` | Service JWT mint/validate |

@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	openjobenv "github.com/TheGrimmChester/open-job-env-go"
 )
 
 // JMeter Perf Lab: JMeter-shaped Perf Lab — multi-step scenarios, JMX import/export,
@@ -1176,7 +1178,7 @@ func maybeDispatchLoadRunner(scenarioID, runID string, vus int, profile, org, pr
 	agentURL := envOr("OPA_PUBLIC_URL", "http://127.0.0.1:"+envOr("PORT", "8080"))
 	cmd := exec.Command("node", script, "--scenario", path, "--agent", agentURL, "--run-id", runID, "--profile", profile)
 	cmd.Dir = envOr("OPA_AGENT_ROOT", ".")
-	cmd.Env = append(os.Environ(),
+	cmd.Env = openjobenv.HostToolEnv(
 		"OPA_PERF_RUNNER_TOKEN="+strings.TrimSpace(envOr("OPA_PERF_RUNNER_TOKEN", "")),
 	)
 	if err := cmd.Start(); err != nil {

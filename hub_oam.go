@@ -106,10 +106,10 @@ func handleOAMProjects(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	target := base + "/api/projects"
-	if org := strings.TrimSpace(r.URL.Query().Get("organization_id")); org != "" && !strings.EqualFold(org, "all") {
-		target += "?organization_id=" + url.QueryEscape(org)
-	}
+	// Forward organization_id (skip "all") and product (disabled_products filter).
+	// Fail-closed hook (lab runs): GET same upstream with ?product=opl and reject
+	// when a concrete X-Project-ID is absent. Enablement writes stay on OAM only.
+	target := oamProjectsTarget(base, r.URL.Query())
 	raw, status, err := proxyPeerGET(r.Context(), target, r)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{
@@ -122,6 +122,21 @@ func handleOAMProjects(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(aliasDirectoryIDs(raw, "projects", "project_id"))
+}
+
+func oamProjectsTarget(base string, q url.Values) string {
+	target := strings.TrimRight(base, "/") + "/api/projects"
+	vals := url.Values{}
+	if org := strings.TrimSpace(q.Get("organization_id")); org != "" && !strings.EqualFold(org, "all") {
+		vals.Set("organization_id", org)
+	}
+	if product := strings.TrimSpace(q.Get("product")); product != "" {
+		vals.Set("product", product)
+	}
+	if enc := vals.Encode(); enc != "" {
+		target += "?" + enc
+	}
+	return target
 }
 
 func aliasDirectoryIDs(raw []byte, listKey, aliasKey string) []byte {

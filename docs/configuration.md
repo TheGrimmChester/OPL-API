@@ -9,7 +9,8 @@
 | `OPEN_SERVICE_JWT_SECRET` | Service JWT mint/validate secret |
 | `CLICKHOUSE_URL` | ClickHouse HTTP endpoint |
 | `CLICKHOUSE_DB` | Product database (default `opl`). Alias: `CLICKHOUSE_DATABASE` |
-| `PEER_OPA_URL` | Optional OPA hub URL for load-run correlation |
+| `PEER_OPA_URL` | Optional OPA hub URL for load-run correlation and org directory (`GET /api/hub/organizations`) |
+| `PEER_OAM_URL` | OAM base URL for the project switcher (`GET /api/oam/projects?product=opl`). Enablement writes stay on OAM. |
 | `OPL_PUBLIC_URL` | Public URL for this product |
 | `OPL_RUN_NOTIFY_MODE` | `deliver` (default) contacts every configured channel; `log` / `log-only` / `dry-run` records intent only (no outbound HTTP, no mail) |
 | `OPL_RUN_NOTIFY_STATUSES` | Comma list to filter (`failed,cancelled`) or `terminal` / `*` / empty for all terminal statuses |
@@ -20,6 +21,9 @@
 | `OPL_RUN_EMAIL_TO` | **email channel** — comma list of recipients. Empty leaves the channel unconfigured. |
 | `OPL_RUN_EMAIL_FROM` | Optional From override (defaults to `OPA_SMTP_FROM`, then `OPA_SMTP_USER`) |
 | `OPA_SMTP_HOST` / `OPA_SMTP_PORT` / `OPA_SMTP_USER` / `OPA_SMTP_PASS` / `OPA_SMTP_FROM` | SMTP relay for the email channel, shared with the edge agent alert email. Without `OPA_SMTP_HOST` the recipients are recorded as `logged` (intentional no-send), never dropped. |
+| `REDIS_URL` | empty | Dedicated `redis-opl` for cross-replica run-notification dedup |
+| `OPL_SEC_L1_CACHE` | `20000` | Security cache L1 max entries |
+| `OPL_SEC_KEY_PREFIX` | `opl:sec:` | Redis key prefix |
 
 ### Scheduler and orchestrator
 

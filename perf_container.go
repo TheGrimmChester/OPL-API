@@ -247,9 +247,16 @@ func (d DockerRunner) RunJMeter(spec PerfJMeterRunSpec) (PerfContainerHandle, er
 		logIn = "/jmeter/" + spec.WorkRel + "/jmeter.log"
 	}
 
-	args := []string{"run", "--rm", "--name", name}
+	args := []string{"run", "--rm", "--name", name,
+		"--read-only",
+		"--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges",
+		"--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
+	}
 	if net := strings.TrimSpace(firstNonEmpty(spec.Network, envOr("OPA_JMETER_NETWORK", ""))); net != "" {
 		args = append(args, "--network", net)
+	} else {
+		args = append(args, "--network", "none")
 	}
 	if cpus := strings.TrimSpace(firstNonEmpty(spec.CPUs, envOr("OPA_JMETER_CPUS", ""))); cpus != "" {
 		args = append(args, "--cpus", cpus)
