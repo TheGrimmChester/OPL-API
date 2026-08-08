@@ -124,7 +124,7 @@ Unknown widget/metric names are dropped on save, so an export never claims a wid
 
 ### Nested steps / visual editor backend
 
-`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip. Field ↔ JMX property matrix (headers, Advanced HTTP/CSV/SLA, ForEach separator, …): [jmeter-perf.md — Scenario editor field ↔ JMX matrix](jmeter-perf.md#scenario-editor-field--jmx-matrix).
 
 **A logic controller is structure, not a sample.** Flattening keeps `if` / `while` / `loop` / `foreach` (also
 `if_controller` / `while_controller` / `loop_controller` / `foreach_controller` / `for_each`) in the flat list

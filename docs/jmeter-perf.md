@@ -136,7 +136,36 @@ The dry-run only sends requests for steps that *are* requests. Logic controllers
 (`if` / `while` / `loop` / `foreach`) are reported as journey structure with their condition, loop count or
 input variable and issue nothing — see
 [perf-lab.md](perf-lab.md#nested-steps--visual-editor-backend). So the request count a validate puts on the
-target is the number of HTTP steps in the journey, not the number of nodes in its tree.
+target is the number of HTTP steps in the journey, not the number of nodes in its tree. Step `headers`
+(map or `[{name,value}]`) are applied on that dry-run; empty header maps skip emitting an empty
+`HeaderManager`.
+
+## Scenario editor field ↔ JMX matrix
+
+Dashboard **Basics / Advanced** fields map 1:1 onto `steps_json` / `datasets_json` / `schedule_json` /
+`sla_json` and the emitted plan. No Advanced control without emit; no silent hardcode of a user-visible
+field.
+
+| Surface | Editor / JSON field | JMX / runtime |
+|---------|---------------------|---------------|
+| HTTP headers | `headers` map or `[{name,value}]` | Per-sampler `HeaderManager` under sampler hashTree (separate from plan-level OPA correlation headers) |
+| Redirects | `follow_redirects` (default true) | `HTTPSampler.follow_redirects` |
+| Timeouts | `connect_timeout_ms`, `response_timeout_ms` (>0) | `HTTPSampler.connect_timeout`, `HTTPSampler.response_timeout` |
+| Body encode | `always_encode` (default false when body set) | `HTTPSampler.postBodyRaw` honesty |
+| Think | `think_ms`, `think_ms_rand` | `ConstantTimer` or `UniformRandomTimer` when rand > think |
+| Enabled | `enabled` (default true) | element `enabled="false"`; skipped in validate |
+| Extract | `match_number`, `template`, `default_value` | RegexExtractor props |
+| Assert | `assert_type`, `assert_field`, `assume_success` | ResponseAssertion mapping |
+| Transaction | `include_timers`, `generate_parent_sample` | TransactionController bool props |
+| If | `evaluate_all`, `use_expression` | IfController props |
+| ForEach | `use_separator` | `ForeachController.useSeparator` |
+| ThreadGroup ramp | `schedule.ramp_seconds` (>0) | `ThreadGroup.ramp_time` (else **10**) |
+| CSV Advanced | `share_mode`, `quoted`, `ignore_first_line`, `encoding`, `stop_thread`, `recycle` | CSVDataSet `shareMode` / `quotedData` / `ignoreFirstLine` / `fileEncoding` / `stopThread` / `recycle` (see defaults table above) |
+| SLA | `p95_ms`, `error_rate_max`, `rps_min` | Fail-closed gate / `/gate` (`rps` missing or `< rps_min` fails) |
+
+**HAR import:** lab RFC1918 / loopback / `host.docker.internal` stay in steps with warnings; cloud metadata stays blocked. Validate/dispatch still dial-pin — set `OPA_PERF_INTERNAL_HOSTS` for those hosts. Empty imports return skip tallies.
+
+**Auth:** validate (and upsert/import/dispatch) require **admin** when auth is on; `export-jmx` stays view-scoped.
 
 ## Scale
 
@@ -161,6 +190,6 @@ Full JMeter plugin fidelity, multi-cloud public generators, real-browser hybrid 
 - Metrics POST requires **admin** or `OPA_PERF_RUNNER_TOKEN` (viewers cannot forge pass/fail).
 - Viewers may list scenarios and create undispatched run IDs for correlation; export-jmx/xhr/har are view-scoped.
 - Validate uses dial-pinned HTTP (DNS rebinding resistant) and treats only **2xx** as OK.
-- HAR/XHR import skips private/metadata hosts via the same URL policy as validate/dispatch.
+- HAR/XHR import **keeps** lab private / loopback / `host.docker.internal` with warnings and still **blocks** cloud metadata; validate/dispatch dial-pin is unchanged (`OPA_PERF_INTERNAL_HOSTS`).
 - Scenario gate rejects runs whose `scenario_id` does not match the URL.
 - SLA gate is fail-closed (empty/running summaries and empty SLA fail unless `OPA_PERF_ALLOW_EMPTY_SLA=1`).
