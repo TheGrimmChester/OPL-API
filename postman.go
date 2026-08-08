@@ -11,8 +11,8 @@ import (
 
 // Postman Collection v2 / v2.1 → OPL HTTP steps (best-effort).
 
-func registerPostmanMux(_ *http.ServeMux, _, authAdmin func(string, http.HandlerFunc)) {
-	authAdmin("/api/perf/scenarios/import-postman", handlePerfImportPostman)
+func registerPostmanMux(_ *http.ServeMux, _, authEditor func(string, http.HandlerFunc)) {
+	authEditor("/api/perf/scenarios/import-postman", handlePerfImportPostman)
 }
 
 func handlePerfImportPostman(w http.ResponseWriter, r *http.Request) {

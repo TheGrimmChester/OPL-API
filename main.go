@@ -46,6 +46,13 @@ func main() {
 			mux.HandleFunc(pattern, h)
 		}
 	}
+	authEditor := func(pattern string, h http.HandlerFunc) {
+		if authRequired {
+			mux.HandleFunc(pattern, AuthMiddleware(h, "editor"))
+		} else {
+			mux.HandleFunc(pattern, h)
+		}
+	}
 	authAdmin := func(pattern string, h http.HandlerFunc) {
 		if authRequired {
 			mux.HandleFunc(pattern, AuthMiddleware(h, "admin"))
@@ -67,8 +74,8 @@ func main() {
 	registerLocalAuthMux(mux)
 
 	registerHubOAMMux(mux, authView)
-	registerPerfLabMux(mux, authView, authAdmin)
-	registerJMeterMux(mux, authView, authAdmin)
+	registerPerfLabMux(mux, authView, authEditor, authAdmin)
+	registerJMeterMux(mux, authView, authEditor, authAdmin)
 	registerPeerSCMMux(mux)
 
 	srv := &http.Server{

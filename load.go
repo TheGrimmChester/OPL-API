@@ -14,7 +14,7 @@ import (
 
 // Perf lab — load scenarios, runs, metrics, k6 export (single-runner MVP).
 
-func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
+func registerPerfLabMux(mux *http.ServeMux, authView, authEditor, authAdmin func(string, http.HandlerFunc)) {
 	authView("/api/perf/scenarios", handlePerfScenarios)
 	authView("/api/perf/runs", handlePerfRunsListOrCreate)
 	authView("/api/perf/runs/", handlePerfRunByID)
@@ -23,7 +23,7 @@ func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, htt
 	authView("/api/perf/notifications/", handlePerfNotifications)
 	authView("/api/perf/schedules", handlePerfSchedules)
 	authView("/api/perf/schedules/", handlePerfSchedules)
-	authAdmin("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
+	authEditor("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
 	registerReportTemplateMux(authView, authAdmin)
 	_ = mux
 }
@@ -40,7 +40,7 @@ func loadID(prefix string, parts ...string) string {
 
 func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost || r.Method == http.MethodPut {
-		http.Error(w, "use POST /api/perf/scenarios/upsert (admin)", 405)
+		http.Error(w, "use POST /api/perf/scenarios/upsert (editor)", 405)
 		return
 	}
 	if r.Method != http.MethodGet {

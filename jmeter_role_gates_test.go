@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// N5 — validate is admin-gated; export-jmx stays viewable (authView only).
-func TestValidateRequiresAdminRole(t *testing.T) {
+// N5 — validate is editor-gated; export-jmx stays viewable (authView only).
+func TestValidateRequiresEditorRole(t *testing.T) {
 	prev := authEnforced
 	authEnforced = true
 	t.Cleanup(func() { authEnforced = prev })
@@ -18,6 +18,17 @@ func TestValidateRequiresAdminRole(t *testing.T) {
 	handlePerfScenarioSubroutes(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("viewer validate: got %d want 403 body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "editor required\n" {
+		t.Fatalf("viewer validate body: got %q want editor required", got)
+	}
+
+	recEditor := httptest.NewRecorder()
+	reqEditor := httptest.NewRequest(http.MethodPost, "/api/perf/scenarios/scn-role/validate", nil)
+	reqEditor.Header.Set("X-User-Role", "editor")
+	handlePerfScenarioSubroutes(recEditor, reqEditor)
+	if recEditor.Code == http.StatusForbidden {
+		t.Fatalf("editor validate must not be blocked by role gate: body=%s", recEditor.Body.String())
 	}
 
 	recAdmin := httptest.NewRecorder()
@@ -39,6 +50,6 @@ func TestExportJMXAllowsViewer(t *testing.T) {
 	req.Header.Set("X-User-Role", "viewer")
 	handlePerfScenarioSubroutes(rec, req)
 	if rec.Code == http.StatusForbidden {
-		t.Fatalf("viewer export-jmx must not hit admin gate: body=%s", rec.Body.String())
+		t.Fatalf("viewer export-jmx must not hit editor/admin gate: body=%s", rec.Body.String())
 	}
 }

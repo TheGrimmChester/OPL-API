@@ -21,13 +21,14 @@ import (
 // validate dry-run, SLA gate. Production execution is ephemeral Docker JMeter
 // containers (PerfContainerRunner); Node load-runner is a gated dev fallback.
 
-func registerJMeterMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
-	authAdmin("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
-	authAdmin("/api/perf/runs/import-jtl", handlePerfImportJTL)
-	registerHARCaptureMux(mux, authView, authAdmin)
-	registerPostmanMux(mux, authView, authAdmin)
+func registerJMeterMux(mux *http.ServeMux, authView, authEditor, authAdmin func(string, http.HandlerFunc)) {
+	authEditor("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
+	authEditor("/api/perf/runs/import-jtl", handlePerfImportJTL)
+	registerHARCaptureMux(mux, authView, authEditor)
+	registerPostmanMux(mux, authView, authEditor)
 	authView("/api/perf/scenarios/", handlePerfScenarioSubroutes)
 	_ = mux
+	_ = authAdmin
 }
 
 func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +50,7 @@ func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[1] {
 	case "validate":
-		if !perfRequireAdmin(w, r) {
+		if !perfRequireEditor(w, r) {
 			return
 		}
 		handlePerfScenarioValidate(w, r, id)

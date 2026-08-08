@@ -279,7 +279,7 @@ func handlePerfImportJTL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if writer == nil {
@@ -891,7 +891,7 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if queryClient == nil || writer == nil {
@@ -930,7 +930,7 @@ func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id stri
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if queryClient == nil || writer == nil {
@@ -969,7 +969,7 @@ func handlePerfScenarioDuplicate(w http.ResponseWriter, r *http.Request, id stri
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if queryClient == nil || writer == nil {

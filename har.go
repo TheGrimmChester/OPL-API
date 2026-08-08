@@ -16,9 +16,9 @@ import (
 // Selectors on steps correlate recorded UI actions with HTTP samplers; they are
 // stored in steps_json and mirrored as JMX XML comments (not executable).
 
-func registerHARCaptureMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
-	authAdmin("/api/perf/scenarios/import-har", handlePerfImportHAR)
-	authAdmin("/api/perf/scenarios/import-xhr", handlePerfImportXHR)
+func registerHARCaptureMux(mux *http.ServeMux, authView, authEditor func(string, http.HandlerFunc)) {
+	authEditor("/api/perf/scenarios/import-har", handlePerfImportHAR)
+	authEditor("/api/perf/scenarios/import-xhr", handlePerfImportXHR)
 	_ = mux
 	_ = authView
 }
