@@ -20,7 +20,7 @@ require (
 	github.com/TheGrimmChester/open-job-env-go v0.0.0
 	github.com/TheGrimmChester/open-job-go v0.0.0-20260803091535-04d163946627
 	github.com/TheGrimmChester/open-logger-go v0.2.0
-	github.com/TheGrimmChester/open-tenant-go v0.2.2
+	github.com/TheGrimmChester/open-tenant-go v0.3.1
 )
 
 require (

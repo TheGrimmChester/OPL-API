@@ -6,7 +6,7 @@ github.com/TheGrimmChester/open-job-go v0.0.0-20260803091535-04d163946627 h1:Soe
 github.com/TheGrimmChester/open-job-go v0.0.0-20260803091535-04d163946627/go.mod h1:m8yuLHSqPqouN6DQGSx4vfGNsSxzkCfs1qvcJJh5NtU=
 github.com/TheGrimmChester/open-logger-go v0.2.0 h1:WKEdDeLCKWrAA7muEnRlbXvg9BL0IZSJJO+tWj8Ydfg=
 github.com/TheGrimmChester/open-logger-go v0.2.0/go.mod h1:Yyj/SD2lr1pbo+Uawlfa4JvSNiEheYx2T1xzrq9XYL8=
-github.com/TheGrimmChester/open-tenant-go v0.2.2 h1:TU2OsQ0CzLzyyk2u8FpvJkujmr/ekqbN1Jv0/rfs8Ro=
-github.com/TheGrimmChester/open-tenant-go v0.2.2/go.mod h1:d1e0EyIZal6Wr9pFQxjqJ65gYpE46EzEQK+PKoiQNnk=
+github.com/TheGrimmChester/open-tenant-go v0.3.1 h1:PEWT0zCtv97892vi5TXb5ngXMtijkx+CfeAa1wnKBZg=
+github.com/TheGrimmChester/open-tenant-go v0.3.1/go.mod h1:d1e0EyIZal6Wr9pFQxjqJ65gYpE46EzEQK+PKoiQNnk=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
