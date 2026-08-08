@@ -11,6 +11,7 @@ Visual scenario builder in the Dashboard generates Apache JMeter `.jmx`. Runs ex
 - Federation fan-out ≠ multi-region load cloud.
 - Not a full plugin marketplace; no real-browser hybrid VU engine.
 - Generated/simple scenarios enforce URL policy (no private/metadata/decimal hosts) before validate/dispatch.
+- **HAR/XHR import** keeps lab RFC1918 / loopback / `host.docker.internal` in steps with warnings; cloud metadata stays blocked. Validate/dispatch dial-pin is **not** weakened — set `OPA_PERF_INTERNAL_HOSTS` for those lab hosts or they fail at run time.
 - **Raw JMX** may still hit arbitrary hosts via `HTTPSamplerProxy` even when script/OS samplers are blocked — treat imported JMX as trusted admin input.
 - SLA gate is fail-closed; do not trust client-posted run `status` alone — use `/gate`.
 
@@ -54,11 +55,11 @@ Dashboard / API  →  Agent dispatchJMeterRunScaled
 
 ## APIs
 
-- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), `datasets` (bound into the emitted plan — see Honesty above), sla, schedule (`curve` points optional), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments). `fragment` steps are reusable definitions and `include` / `link` steps reference them by name with optional `params`; the response carries `fragment_references[]` saying per reference whether the plan emitted a module reference or fell back to an inline copy. A `rendezvous` step (or `schedule.rendezvous`) emits a synchronising timer — see [perf-lab.md](perf-lab.md#reusable-journey-modules).
+- `POST /api/perf/scenarios/upsert` — steps (optional nested `children` including `if` / `while` / `loop` / `transaction`), `datasets` (bound into the emitted plan — see Honesty above), sla, schedule (`curve` points optional; classic ThreadGroup uses `schedule.ramp_seconds` when > 0, else **10**), optional `jmx_xml` (auto-generated if omitted). HTTP steps may include `headers` (map or `[{name,value}]` → per-sampler `HeaderManager`, separate from plan-level OPA correlation headers), `follow_redirects` (default true), `always_encode` (default false when body set), `connect_timeout_ms` / `response_timeout_ms` (emitted when > 0), `think_ms` / `think_ms_rand` (UniformRandomTimer when rand > think), and `enabled` (default true; `false` → JMX `enabled="false"`, skipped in validate). Extractors accept `match_number` / `template` / `default_value`; asserts map `assert_type` / `assert_field` / `assume_success`; transactions accept `include_timers` / `generate_parent_sample`; If accepts `evaluate_all` / `use_expression`; ForEach honors `use_separator`. HTTP steps may include `selector_type` (`css`|`xpath`|`correlate`), `selector`, `page_url`, `ui_action` (correlation metadata; mirrored as JMX comments). `fragment` steps are reusable definitions and `include` / `link` steps reference them by name with optional `params`; the response carries `fragment_references[]` saying per reference whether the plan emitted a module reference or fell back to an inline copy. A `rendezvous` step (or `schedule.rendezvous`) emits a synchronising timer — see [perf-lab.md](perf-lab.md#reusable-journey-modules).
 - `POST /api/perf/scenarios/import-jmx` — raw XML or `{name,jmx}`; nested controller tree preserved when parseable
-- `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers
+- `POST /api/perf/scenarios/import-har` — HAR JSON (`log.entries`) or `{name,har,dry_run,include_static,id}`; maps to HTTP samplers. **Lab RFC1918 / loopback / `host.docker.internal` are kept** with warnings (set `OPA_PERF_INTERNAL_HOSTS` before validate/dispatch); cloud metadata (`169.254.169.254`, `metadata.google.internal`, weird hosts) stay blocked. Empty imports return skip tallies (`static` / `private` / `OPTIONS` / `blocked` / `empty`).
 - `POST /api/perf/scenarios/import-xhr` — XHR JSON array / `{name,xhr,…}`; optional per-row selectors
-- `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` (triage) / `.../gate` / `.../archive` / `.../duplicate` / `.../schedule`
+- `GET /api/perf/scenarios/{id}` / `export-jmx` / `export-xhr` / `export-har` / `POST .../validate` (triage with nestable `path` when available) / `.../gate` / `.../archive` / `.../duplicate` / `.../schedule`
 - `GET /api/perf/scenarios/{id}/schedule` — server-computed next fire time + current lease owner; `.../schedule/history` for the fire history
 - `GET /api/perf/schedules` — all enabled schedules with next fire times; `/api/perf/schedules/history` across scenarios
 - `GET /api/perf/load-policies` — smooth/sustained/stress/custom → ramp/soak/spike; custom accepts `schedule.curve` with `curve_mode=vus|arrivals`
@@ -135,7 +136,105 @@ The dry-run only sends requests for steps that *are* requests. Logic controllers
 (`if` / `while` / `loop` / `foreach`) are reported as journey structure with their condition, loop count or
 input variable and issue nothing — see
 [perf-lab.md](perf-lab.md#nested-steps--visual-editor-backend). So the request count a validate puts on the
-target is the number of HTTP steps in the journey, not the number of nodes in its tree.
+target is the number of HTTP steps in the journey, not the number of nodes in its tree. Step `headers`
+(map or `[{name,value}]`) are applied on that dry-run; empty header maps skip emitting an empty
+`HeaderManager`.
+
+## Scenario editor field ↔ JMX matrix
+
+Canonical mapping for the visual scenario editor → stored JSON → emitted Apache JMeter plan.
+Emit source of truth: `jmeter_engine.go` (`appendStepJMXIndexed`, `writeJMXStepHeaderManager`),
+`jmeter_datasets.go` (`writeJMXCSVDataSet`), SLA gate `harden.go` (`evaluateSLAFailClosed`).
+Import reverse-mapping (best-effort) lives in `jmeter_tree.go` (`jmxElementToStep`).
+
+Nested `children` open nested `hashTree`s. Plan-level OPA correlation headers
+(`X-OPA-Load-Run-Id` / `baggage`) are a separate ThreadGroup `HeaderManager`
+(`writeJMXCorrelationHeaders`) and are **not** the same as per-step `headers`.
+No Advanced control without emit; no silent hardcode of a user-visible field.
+
+### HTTP (`steps_json` type `http` → `HTTPSamplerProxy`)
+
+| Editor / JSON field | JMX element / property | Emit notes |
+|---|---|---|
+| `method`, `url` (→ domain/port/protocol/path), `body` | `HTTPSampler.*` | Body only when non-empty → `HTTPSampler.postBodyRaw` + `HTTPArgument` |
+| `headers` (map **or** `[{name,value}]`) | Child `HeaderManager` (`Header.name` / `Header.value`) | Under sampler `hashTree`, **before** extract/assert. Empty → no step HeaderManager |
+| `follow_redirects` | `HTTPSampler.follow_redirects` | Default **true** when omitted |
+| `connect_timeout_ms` | `HTTPSampler.connect_timeout` | Emitted only when **> 0** |
+| `response_timeout_ms` | `HTTPSampler.response_timeout` | Emitted only when **> 0** |
+| `always_encode` | `HTTPArgument.always_encode` | Only when body set; default **false** |
+| `think_ms` / `think_ms_rand` | `ConstantTimer` and/or `UniformRandomTimer` | When `think_ms_rand > think_ms`: delay = think, range = rand − think. Else if `think_ms > 0`: ConstantTimer only |
+| `enabled` | XML `enabled="true\|false"` | Default **true**. Validate **skips** `enabled=false`; JMX still emits disabled |
+| `selector_type` / `selector` / `page_url` / `ui_action` | `<!-- opa-ui … -->` comment | Correlation metadata only |
+
+### Extract (`type: extract`)
+
+| Editor / JSON field | JMX (regex) | JMX (jsonpath) | Defaults |
+|---|---|---|---|
+| `var` | `RegexExtractor.refname` | `JSONPostProcessor.referenceNames` | — |
+| `expression` | `RegexExtractor.regex` | `JSONPostProcessor.jsonPathExprs` | jsonpath when `engine=="jsonpath"` **or** expr starts with `$.` |
+| `match_number` | `RegexExtractor.match_number` | `JSONPostProcessor.match_numbers` | **1** |
+| `template` | `RegexExtractor.template` | *(n/a)* | **`$1$`** (regex only) |
+| `default_value` | `RegexExtractor.default` | `JSONPostProcessor.defaultValues` | `""` |
+
+### Assert (`type: assert` → `ResponseAssertion`)
+
+| Editor / JSON field | JMX property | Notes |
+|---|---|---|
+| `status` / `body_contains` | `Asserion.test_strings` + field/type | Historical spelling **`Asserion.test_strings`**. Status defaults: field `response_code`, type **8** (equals). Body defaults: field `response_data`, type **2** |
+| `assert_type` | `Assertion.test_type` | `contains`→1, `equals`→8, `regex`\|`matches`→2 |
+| `assert_field` | `Assertion.test_field` | `response_code` / `response_data` / `response_headers` |
+| `assume_success` | `Assertion.assume_success` | Default **false** |
+
+### Controllers
+
+| Type | Editor / JSON field | JMX property | Default |
+|---|---|---|---|
+| Transaction | `include_timers` | `TransactionController.includeTimers` | **false** |
+| Transaction | `generate_parent_sample` | `TransactionController.parent` | **false** |
+| If | `condition` | `IfController.condition` | `${__jexl3(true)}` if empty |
+| If | `evaluate_all` | `IfController.evaluateAll` | **false** |
+| If | `use_expression` | `IfController.useExpression` | **true** |
+| ForEach | `input_var` / `return_var` | `ForeachController.inputVal` / `returnVal` | `items` / `item` |
+| ForEach | `use_separator` | **`ForeachController.useSeparator`** | **true** |
+
+### CSV Advanced (`datasets_json.csv` → `CSVDataSet`)
+
+Emitted once at Test Plan level before the first ThreadGroup. See [Parameterised data (CSV)](#parameterised-data-csv) for delimiter / inline / filename honesty.
+
+| Editor / JSON field (aliases) | JMX property | Default |
+|---|---|---|
+| `share_mode` / `shareMode` (`all`\|`group`\|`thread`) | `shareMode` | `shareMode.all` |
+| `quoted` / `quotedData` | `quotedData` | **true** |
+| `ignore_first_line` / `ignoreFirstLine` | `ignoreFirstLine` | **false** (forced false for engine-written inline `data.csv`) |
+| `encoding` / `fileEncoding` | `fileEncoding` | `UTF-8` |
+| `stop_thread` / `stopThread` | `stopThread` | **false**; if both recycle and stop_thread → stop cleared + warning |
+| `recycle` | `recycle` | **true** |
+
+### ThreadGroup / SLA
+
+| Field | Target | Notes |
+|---|---|---|
+| `schedule.ramp_seconds` | `ThreadGroup.ramp_time` | When **> 0**; else classic group uses **10** |
+| `sla.p95_ms` / `error_rate_max` / `rps_min` | Gate / `/gate` (not JMX) | Fail-closed: missing summary fields or breach (`rps < rps_min`) |
+
+### HAR import vs run-time URL policy
+
+| Stage | Lab RFC1918 / loopback / `host.docker.internal` | Cloud metadata |
+|---|---|---|
+| **Import** | **Kept** with warnings + `private` tally | **Blocked** |
+| **Validate / dispatch** | Still blocked unless listed in **`OPA_PERF_INTERNAL_HOSTS`** | Still blocked |
+
+### Validate (`POST …/scenarios/{id}/validate`)
+
+| Behavior | Detail |
+|---|---|
+| **Admin-only** | `perfRequireAdmin` when auth enforced; viewers **403** |
+| **Step headers → target** | Dry-run applies `stepHTTPHeaderPairs` |
+| **`unbound_variables` fail-closed** | Unresolved plain `${name}` → `pass=false`; JMeter function forms not reported |
+| **`path[]` triage** | Nestable index path on triage / correlation |
+| Disabled steps | `enabled=false` omitted from dry-run; still in JSON / JMX |
+
+`export-jmx` stays view-scoped (not admin-gated).
 
 ## Scale
 
@@ -156,10 +255,12 @@ Full JMeter plugin fidelity, multi-cloud public generators, real-browser hybrid 
 
 ## Security notes
 
-- Scenario upsert / import-jmx / import-har / import-xhr / validate / dispatch / fan-out require **admin** when `OPA_AUTH_REQUIRED=1`.
+- Scenario upsert / import-jmx / import-har / import-xhr / import-postman / validate / archive / duplicate require **editor** (or admin) when `OPA_AUTH_REQUIRED=1`.
+- Personal accounts: scenario rows store `user_id` (`WriteOwner`); by-id load/validate use `OwnedRowPredicate` on that owner. Org lists of `load_scenarios` exclude personal rows via `ExcludePersonalRows`.
+- Run **dispatch / fan-out** and **cancel** still require **admin**.
 - Metrics POST requires **admin** or `OPA_PERF_RUNNER_TOKEN` (viewers cannot forge pass/fail).
 - Viewers may list scenarios and create undispatched run IDs for correlation; export-jmx/xhr/har are view-scoped.
 - Validate uses dial-pinned HTTP (DNS rebinding resistant) and treats only **2xx** as OK.
-- HAR/XHR import skips private/metadata hosts via the same URL policy as validate/dispatch.
+- HAR/XHR import **keeps** lab private / loopback / `host.docker.internal` with warnings and still **blocks** cloud metadata; validate/dispatch dial-pin is unchanged (`OPA_PERF_INTERNAL_HOSTS`).
 - Scenario gate rejects runs whose `scenario_id` does not match the URL.
 - SLA gate is fail-closed (empty/running summaries and empty SLA fail unless `OPA_PERF_ALLOW_EMPTY_SLA=1`).

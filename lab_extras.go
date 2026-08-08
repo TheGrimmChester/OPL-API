@@ -279,7 +279,7 @@ func handlePerfImportJTL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if writer == nil {
@@ -407,6 +407,9 @@ func triageValidateResults(results []map[string]interface{}) (pass bool, triage 
 			"status_code": step["status_code"], "url": step["url"], "method": step["method"],
 			"body_preview": step["body_preview"], "latency_ms": step["latency_ms"],
 		}
+		if p, ok := step["path"]; ok && p != nil {
+			entry["path"] = p
+		}
 		triage = append(triage, entry)
 	}
 	return pass, triage
@@ -476,6 +479,9 @@ func suggestAutoCorrelation(results []map[string]interface{}) []map[string]inter
 			sug["step_index"] = i
 			sug["step_name"] = step["name"]
 			sug["apply_under"] = "http_children"
+			if p, ok := step["path"]; ok && p != nil {
+				sug["path"] = p
+			}
 			if !ok {
 				sug["note"] = "Step failed — suggestion still useful if body contains tokens."
 			}
@@ -885,7 +891,7 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if queryClient == nil || writer == nil {
@@ -893,7 +899,7 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReq(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -901,7 +907,7 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": getString(sc, "name"), "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),
@@ -924,7 +930,7 @@ func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id stri
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if queryClient == nil || writer == nil {
@@ -932,7 +938,7 @@ func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReqAny(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -940,7 +946,7 @@ func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id stri
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": getString(sc, "name"), "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),
@@ -963,7 +969,7 @@ func handlePerfScenarioDuplicate(w http.ResponseWriter, r *http.Request, id stri
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if !perfRequireAdmin(w, r) {
+	if !perfRequireEditor(w, r) {
 		return
 	}
 	if queryClient == nil || writer == nil {
@@ -971,7 +977,7 @@ func handlePerfScenarioDuplicate(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReq(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -994,7 +1000,7 @@ func handlePerfScenarioDuplicate(w http.ResponseWriter, r *http.Request, id stri
 	newID := loadID("scn", org, proj, newName, fmt.Sprintf("%d", time.Now().UnixNano()))
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": newID, "organization_id": org, "project_id": proj,
+		"id": newID, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": newName, "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),

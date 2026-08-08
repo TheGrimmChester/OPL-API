@@ -16,9 +16,9 @@ import (
 // Selectors on steps correlate recorded UI actions with HTTP samplers; they are
 // stored in steps_json and mirrored as JMX XML comments (not executable).
 
-func registerHARCaptureMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
-	authAdmin("/api/perf/scenarios/import-har", handlePerfImportHAR)
-	authAdmin("/api/perf/scenarios/import-xhr", handlePerfImportXHR)
+func registerHARCaptureMux(mux *http.ServeMux, authView, authEditor func(string, http.HandlerFunc)) {
+	authEditor("/api/perf/scenarios/import-har", handlePerfImportHAR)
+	authEditor("/api/perf/scenarios/import-xhr", handlePerfImportXHR)
 	_ = mux
 	_ = authView
 }
@@ -97,7 +97,7 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -162,7 +162,15 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 		return
 	}
 	if len(steps) == 0 {
-		http.Error(w, "no HTTP requests found in "+kind+" payload", 400)
+		// Opaque "no HTTP requests" hid why every entry was dropped (e.g. all RFC1918).
+		summary := "no skip tallies"
+		for _, wmsg := range warnings {
+			if strings.HasPrefix(wmsg, "skipped ") && strings.Contains(wmsg, "static=") {
+				summary = wmsg
+				break
+			}
+		}
+		http.Error(w, "no HTTP requests found in "+kind+" payload ("+summary+")", 400)
 		return
 	}
 
@@ -188,11 +196,18 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 	}
 
 	if dryRun {
-		writeJSON(w, map[string]interface{}{
+		out := map[string]interface{}{
 			"ok": true, "dry_run": true, "scenario": sc, "steps": steps,
 			"count": len(steps), "warnings": warnings,
 			"honesty": "dry_run did not persist; POST without dry_run to upsert.",
-		})
+		}
+		for _, wmsg := range warnings {
+			if strings.Contains(wmsg, "OPA_PERF_INTERNAL_HOSTS") {
+				out["honesty"] = fmt.Sprint(out["honesty"]) + " Lab/private URLs imported with warnings — set OPA_PERF_INTERNAL_HOSTS before validate/dispatch or dial-pin will block them."
+				break
+			}
+		}
+		writeJSON(w, out)
 		return
 	}
 
@@ -211,7 +226,7 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	row, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": scnName, "target_url": firstURL, "method": firstMethod,
 		"vus": 10, "duration_seconds": 60,
 		"headers_json": "{}", "body": "", "thresholds_json": string(slaJSON),
@@ -224,8 +239,18 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 	}
 	writeJSON(w, map[string]interface{}{
 		"ok": true, "id": id, "scenario": sc, "count": len(steps), "warnings": warnings,
-		"honesty": "JMeter-compatible scenario from " + kind + "; jmx_xml is source of truth for Docker JMeter runs.",
+		"honesty": harImportHonesty(kind, warnings),
 	})
+}
+
+func harImportHonesty(kind string, warnings []string) string {
+	h := "JMeter-compatible scenario from " + kind + "; jmx_xml is source of truth for Docker JMeter runs."
+	for _, wmsg := range warnings {
+		if strings.Contains(wmsg, "OPA_PERF_INTERNAL_HOSTS") {
+			return h + " Lab/private URLs imported with warnings — set OPA_PERF_INTERNAL_HOSTS before validate/dispatch or dial-pin will block them."
+		}
+	}
+	return h
 }
 
 func parseHARToSteps(raw []byte, includeStatic bool) ([]map[string]interface{}, []string, error) {
@@ -248,8 +273,9 @@ func parseHARToSteps(raw []byte, includeStatic bool) ([]map[string]interface{}, 
 
 	var warnings []string
 	var steps []map[string]interface{}
-	skipped := 0
+	var tallies captureImportTallies
 	var prevStart time.Time
+	labPrivateSeen := false
 	for i, e := range root.Log.Entries {
 		req := e.Request
 		method := strings.ToUpper(strings.TrimSpace(req.Method))
@@ -258,22 +284,26 @@ func parseHARToSteps(raw []byte, includeStatic bool) ([]map[string]interface{}, 
 		}
 		u := strings.TrimSpace(req.URL)
 		if u == "" {
-			skipped++
+			tallies.Empty++
 			continue
 		}
 		if !includeStatic && isStaticAssetURL(u) {
-			skipped++
+			tallies.Static++
 			continue
 		}
 		if method == "OPTIONS" {
-			skipped++
+			tallies.Options++
 			continue
 		}
 		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
 			if err := isObviouslyBlockedPerfURL(u); err != nil {
-				skipped++
+				tallies.Blocked++
 				warnings = append(warnings, fmt.Sprintf("skipped blocked URL %s (%v)", shortURLPath(u), err))
 				continue
+			}
+			if isLabPrivatePerfURL(u) {
+				tallies.Private++
+				labPrivateSeen = true
 			}
 		}
 		name := fmt.Sprintf("%s %s", method, shortURLPath(u))
@@ -336,8 +366,9 @@ func parseHARToSteps(raw []byte, includeStatic bool) ([]map[string]interface{}, 
 		}
 		steps = append(steps, step)
 	}
-	if skipped > 0 {
-		warnings = append(warnings, fmt.Sprintf("skipped %d static/OPTIONS/empty entries (set include_static to keep assets)", skipped))
+	warnings = append(warnings, tallies.summaryWarning())
+	if labPrivateSeen {
+		warnings = append(warnings, "lab/private hosts kept in steps — validate/dispatch still dial-pin via isBlockedPerfURL; set OPA_PERF_INTERNAL_HOSTS to allow them at run time")
 	}
 	if len(steps) > 200 {
 		warnings = append(warnings, fmt.Sprintf("truncated to first 200 of %d requests", len(steps)))
@@ -378,23 +409,32 @@ func parseXHRToSteps(raw []byte, includeStatic bool) ([]map[string]interface{}, 
 
 	var warnings []string
 	var steps []map[string]interface{}
-	skipped := 0
+	var tallies captureImportTallies
+	labPrivateSeen := false
 	for i, x := range list {
 		method := strings.ToUpper(strings.TrimSpace(nz(x.Method, "GET")))
 		u := strings.TrimSpace(x.URL)
 		if u == "" {
-			skipped++
+			tallies.Empty++
 			continue
 		}
 		if !includeStatic && isStaticAssetURL(u) {
-			skipped++
+			tallies.Static++
+			continue
+		}
+		if method == "OPTIONS" {
+			tallies.Options++
 			continue
 		}
 		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
 			if err := isObviouslyBlockedPerfURL(u); err != nil {
-				skipped++
+				tallies.Blocked++
 				warnings = append(warnings, fmt.Sprintf("skipped blocked URL %s", shortURLPath(u)))
 				continue
+			}
+			if isLabPrivatePerfURL(u) {
+				tallies.Private++
+				labPrivateSeen = true
 			}
 		}
 		body := x.Body
@@ -415,8 +455,9 @@ func parseXHRToSteps(raw []byte, includeStatic bool) ([]map[string]interface{}, 
 		attachSelectorFields(step, x.SelectorType, x.Selector, x.PageURL, x.UIAction)
 		steps = append(steps, step)
 	}
-	if skipped > 0 {
-		warnings = append(warnings, fmt.Sprintf("skipped %d empty/static entries", skipped))
+	warnings = append(warnings, tallies.summaryWarning())
+	if labPrivateSeen {
+		warnings = append(warnings, "lab/private hosts kept in steps — validate/dispatch still dial-pin via isBlockedPerfURL; set OPA_PERF_INTERNAL_HOSTS to allow them at run time")
 	}
 	if len(steps) > 200 {
 		warnings = append(warnings, fmt.Sprintf("truncated to first 200 of %d requests", len(steps)))
@@ -475,9 +516,27 @@ func isStaticAssetURL(rawURL string) bool {
 	return false
 }
 
-// isObviouslyBlockedPerfURL filters loopback/private/metadata hosts during capture import
-// without DNS (HAR files often contain hosts that do not resolve in the Agent environment).
-// Full dial-pinned policy still applies at validate/dispatch via isBlockedPerfURL.
+// captureImportTallies counts why HAR/XHR entries were dropped (or kept as lab-private).
+// Private is counted when a lab RFC1918/loopback/host.docker.internal URL is *kept*
+// with a warning — it is not a skip. Empty-import errors still surface the tally so
+// operators can see how much of the capture was lab traffic vs blocked/static.
+type captureImportTallies struct {
+	Static  int
+	Options int
+	Blocked int
+	Empty   int
+	Private int // lab-private kept (not skipped)
+}
+
+func (t captureImportTallies) summaryWarning() string {
+	return fmt.Sprintf("skipped static=%d private=%d OPTIONS=%d blocked=%d empty=%d",
+		t.Static, t.Private, t.Options, t.Blocked, t.Empty)
+}
+
+// isObviouslyBlockedPerfURL hard-blocks only cloud metadata / weird hosts during capture
+// import (no DNS). Lab RFC1918, loopback, and host.docker.internal are allowed into steps
+// with a warning — full dial-pinned policy still applies at validate/dispatch via
+// isBlockedPerfURL (set OPA_PERF_INTERNAL_HOSTS for those hosts at run time).
 func isObviouslyBlockedPerfURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -491,19 +550,56 @@ func isObviouslyBlockedPerfURL(raw string) error {
 	if host == "" {
 		return fmt.Errorf("missing host")
 	}
-	if host == "localhost" || host == "metadata.google.internal" ||
-		strings.HasSuffix(host, ".internal") || host == "host.docker.internal" {
-		return fmt.Errorf("host not allowed")
+	if host == "metadata.google.internal" ||
+		(strings.HasSuffix(host, ".internal") && host != "host.docker.internal") {
+		return fmt.Errorf("metadata/internal host not allowed")
 	}
 	if isWeirdPerfHostForm(host) {
 		return fmt.Errorf("encoded/numeric host not allowed")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if ipBlockedForPerf(ip) {
-			return fmt.Errorf("private/link-local address not allowed")
+		if isImportHardBlockedIP(ip) {
+			return fmt.Errorf("metadata/link-local address not allowed")
 		}
 	}
 	return nil
+}
+
+// isLabPrivatePerfURL reports RFC1918 / loopback / localhost / host.docker.internal —
+// import keeps these with a warning; validate still requires OPA_PERF_INTERNAL_HOSTS.
+func isLabPrivatePerfURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	if host == "" {
+		return false
+	}
+	if host == "localhost" || host == "host.docker.internal" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate()
+	}
+	return false
+}
+
+// isImportHardBlockedIP blocks cloud metadata / link-local / multicast at import time.
+// Unlike ipBlockedForPerf, it does not reject RFC1918 or loopback.
+func isImportHardBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 169 && ip4[1] == 254 {
+			return true
+		}
+	}
+	return false
 }
 
 func shortURLPath(rawURL string) string {

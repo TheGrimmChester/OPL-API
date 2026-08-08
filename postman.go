@@ -11,8 +11,8 @@ import (
 
 // Postman Collection v2 / v2.1 → OPL HTTP steps (best-effort).
 
-func registerPostmanMux(_ *http.ServeMux, _, authAdmin func(string, http.HandlerFunc)) {
-	authAdmin("/api/perf/scenarios/import-postman", handlePerfImportPostman)
+func registerPostmanMux(_ *http.ServeMux, _, authEditor func(string, http.HandlerFunc)) {
+	authEditor("/api/perf/scenarios/import-postman", handlePerfImportPostman)
 }
 
 func handlePerfImportPostman(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +21,7 @@ func handlePerfImportPostman(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -112,7 +112,7 @@ func handlePerfImportPostman(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	row, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": scnName, "target_url": firstURL, "method": firstMethod,
 		"vus": 10, "duration_seconds": 60,
 		"headers_json": "{}", "body": "", "thresholds_json": string(slaJSON),
@@ -329,10 +329,11 @@ func expandPostmanVars(s string) string {
 	return out
 }
 
-// isBlockedPerfURLLoose skips private hosts like HAR import (warn, don't hard-fail parse).
+// isBlockedPerfURLLoose matches HAR import: hard-block metadata/weird only; lab private
+// hosts are kept (validate/dispatch still dial-pin via isBlockedPerfURL).
 func isBlockedPerfURLLoose(url string) error {
 	if strings.Contains(url, "${") {
 		return nil
 	}
-	return isBlockedPerfURL(url)
+	return isObviouslyBlockedPerfURL(url)
 }

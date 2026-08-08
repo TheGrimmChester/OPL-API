@@ -78,6 +78,18 @@ func tenantScopeSQL(r *http.Request, q *ClickHouseQuery, prefix string) string {
 	return ctx.ScopeAnd(prefix)
 }
 
+// tenantScopeSQLWithOwner scopes like tenantScopeSQL and, for organization
+// requests, excludes personal rows (user_id set). Use only on tables that carry
+// user_id (load_scenarios); other tables must keep tenantScopeSQL.
+func tenantScopeSQLWithOwner(r *http.Request, q *ClickHouseQuery, prefix string) string {
+	ctx, _ := ExtractTenantContext(r, q)
+	scope := ctx.ScopeAnd(prefix)
+	if ctx.OrgScoped() && !ctx.PersonalScoped() {
+		scope += " AND " + opentenant.ExcludePersonalRows(prefix)
+	}
+	return scope
+}
+
 func AddTenantContext(r *http.Request, ctx *TenantContext) {
 	if ctx == nil {
 		return

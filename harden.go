@@ -21,11 +21,28 @@ func perfCallerIsAdmin(r *http.Request) bool {
 	return hasPermission(r.Header.Get("X-User-Role"), "admin")
 }
 
+func perfCallerIsEditor(r *http.Request) bool {
+	if !authEnforced {
+		return true
+	}
+	return hasPermission(r.Header.Get("X-User-Role"), "editor")
+}
+
 func perfRequireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if perfCallerIsAdmin(r) {
 		return true
 	}
 	http.Error(w, "admin required", 403)
+	return false
+}
+
+// perfRequireEditor is the product write bar for scenario design (upsert, import,
+// validate, archive/duplicate). Dispatch / metrics stay admin-gated.
+func perfRequireEditor(w http.ResponseWriter, r *http.Request) bool {
+	if perfCallerIsEditor(r) {
+		return true
+	}
+	http.Error(w, "editor required", 403)
 	return false
 }
 
@@ -57,6 +74,11 @@ func perfOwnedAnd(r *http.Request) string {
 	ctx, _ := ExtractTenantContext(r, queryClient)
 	if ctx == nil {
 		return " AND (1=0)"
+	}
+	// Personal accounts own rows by user_id (empty organization_id). Org-scoped
+	// requests still require a concrete organization.
+	if ctx.PersonalScoped() {
+		return " AND " + ctx.OwnedRowPredicate("")
 	}
 	org := strings.TrimSpace(ctx.OrganizationID)
 	if org == "" || strings.EqualFold(org, tenantAll) {

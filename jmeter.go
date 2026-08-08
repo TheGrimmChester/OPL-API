@@ -21,13 +21,14 @@ import (
 // validate dry-run, SLA gate. Production execution is ephemeral Docker JMeter
 // containers (PerfContainerRunner); Node load-runner is a gated dev fallback.
 
-func registerJMeterMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
-	authAdmin("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
-	authAdmin("/api/perf/runs/import-jtl", handlePerfImportJTL)
-	registerHARCaptureMux(mux, authView, authAdmin)
-	registerPostmanMux(mux, authView, authAdmin)
+func registerJMeterMux(mux *http.ServeMux, authView, authEditor, authAdmin func(string, http.HandlerFunc)) {
+	authEditor("/api/perf/scenarios/import-jmx", handlePerfImportJMX)
+	authEditor("/api/perf/runs/import-jtl", handlePerfImportJTL)
+	registerHARCaptureMux(mux, authView, authEditor)
+	registerPostmanMux(mux, authView, authEditor)
 	authView("/api/perf/scenarios/", handlePerfScenarioSubroutes)
 	_ = mux
+	_ = authAdmin
 }
 
 func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +50,7 @@ func handlePerfScenarioSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[1] {
 	case "validate":
-		if !perfRequireAdmin(w, r) {
+		if !perfRequireEditor(w, r) {
 			return
 		}
 		handlePerfScenarioValidate(w, r, id)
@@ -456,7 +457,7 @@ func handlePerfImportJMX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -508,7 +509,7 @@ func handlePerfImportJMX(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": sc["name"], "target_url": sc["target_url"], "method": sc["method"],
 		"vus": sc["vus"], "duration_seconds": sc["duration_seconds"],
 		"headers_json": "{}", "body": "", "thresholds_json": string(slaJSON),
@@ -562,11 +563,13 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 		if typ == "" {
 			typ = "http"
 		}
-		if isPerfControllerMarkerType(typ) {
+			if isPerfControllerMarkerType(typ) {
 			// A logic controller is journey structure, not a sampler. Report the shape
 			// it was designed with and fire nothing: the steps it wraps are already in
 			// the flat list and are exercised on their own.
-			results = append(results, perfControllerMarker(typ, step))
+			entry := perfControllerMarker(typ, step)
+			copyStepPath(entry, step)
+			results = append(results, entry)
 			continue
 		}
 		switch typ {
@@ -594,6 +597,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 			results = append(results, map[string]interface{}{
 				"type": "extract", "var": vname, "value": truncateStr(val, 200), "ok": val != "",
 			})
+			copyStepPath(results[len(results)-1], step)
 		case "assert":
 			ok := true
 			msg := ""
@@ -611,6 +615,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 				}
 			}
 			results = append(results, map[string]interface{}{"type": "assert", "ok": ok, "error": msg})
+			copyStepPath(results[len(results)-1], step)
 		case "transaction":
 			results = append(results, map[string]interface{}{"type": "transaction", "name": step["name"], "ok": true})
 		case "include":
@@ -645,6 +650,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 			method := strings.ToUpper(nz(fmt.Sprint(step["method"]), "GET"))
 			body := expandPerfVars(fmt.Sprint(step["body"]), vars)
 			entry := map[string]interface{}{"type": "http", "name": step["name"], "method": method, "url": url}
+			copyStepPath(entry, step)
 			if err := isBlockedPerfURL(url); err != nil {
 				entry["ok"] = false
 				entry["error"] = "url blocked: " + err.Error()
@@ -658,10 +664,8 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 				results = append(results, entry)
 				continue
 			}
-			if hdrs, ok := step["headers"].(map[string]interface{}); ok {
-				for k, v := range hdrs {
-					req.Header.Set(k, expandPerfVars(fmt.Sprint(v), vars))
-				}
+			for _, hv := range stepHTTPHeaderPairs(step) {
+				req.Header.Set(hv[0], expandPerfVars(hv[1], vars))
 			}
 			start := time.Now()
 			resp, err := client.Do(req)
@@ -781,6 +785,15 @@ func perfControllerMarker(typ string, step map[string]interface{}) map[string]in
 	}
 	entry["note"] = "logic controller — journey structure, not a sample: a 1 VU dry run does not evaluate the branch or iteration count (Apache JMeter does that under load), and the steps it wraps are reported below it"
 	return entry
+}
+
+func copyStepPath(dst, src map[string]interface{}) {
+	if dst == nil || src == nil {
+		return
+	}
+	if p, ok := src["path"]; ok && p != nil {
+		dst["path"] = p
+	}
 }
 
 func scrubValidateVars(vars map[string]string) map[string]string {

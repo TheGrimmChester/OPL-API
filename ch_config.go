@@ -55,6 +55,7 @@ func ensurePerfLabSchema(q *ClickHouseQuery) {
 			id String,
 			organization_id String DEFAULT '',
 			project_id String DEFAULT '',
+			user_id String DEFAULT '',
 			name String,
 			target_url String,
 			method LowCardinality(String) DEFAULT 'GET',
@@ -142,9 +143,12 @@ func ensurePerfLabSchema(q *ClickHouseQuery) {
 			log.Printf("perf schema: %v", err)
 		}
 	}
-	// Existing NAS tables may predate archived; ADD COLUMN is idempotent.
+	// Existing NAS tables may predate archived / personal owner; ADD COLUMN is idempotent.
 	if err := q.Execute(`ALTER TABLE ` + db + `.load_scenarios ADD COLUMN IF NOT EXISTS archived UInt8 DEFAULT 0`); err != nil {
 		log.Printf("perf schema archived column: %v", err)
+	}
+	if err := q.Execute(`ALTER TABLE ` + db + `.load_scenarios ADD COLUMN IF NOT EXISTS user_id String DEFAULT ''`); err != nil {
+		log.Printf("perf schema user_id column: %v", err)
 	}
 	ensureScheduleSchema(q)
 }

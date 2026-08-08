@@ -1,0 +1,1643 @@
+{
+  "log": {
+    "version": "1.2",
+    "creator": {
+      "name": "HAR Recorder",
+      "version": "1.5",
+      "comment": "Records network request and generates HAR file."
+    },
+    "entries": [
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:44.815Z",
+        "time": 38.02700000233017,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/overview",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Upgrade-Insecure-Requests",
+              "value": "1"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            }
+          ],
+          "queryString": [],
+          "headersSize": 223,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept-Ranges",
+              "value": "bytes"
+            },
+            {
+              "name": "Content-Length",
+              "value": "523"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/html"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:44 GMT"
+            },
+            {
+              "name": "ETag",
+              "value": "\"6a72c530-20b\""
+            },
+            {
+              "name": "Last-Modified",
+              "value": "Wed, 05 Aug 2026 05:08:00 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 463,
+          "bodySize": -34,
+          "_transferSize": 429,
+          "content": {
+            "size": 523,
+            "mimeType": "text/html",
+            "compression": 557,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 3.157999995196238,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.15500000000000025,
+          "wait": 34.325,
+          "receive": 0.38899999344721437,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91135",
+        "_initiator": {
+          "type": "other"
+        },
+        "_priority": "VeryHigh",
+        "_resourceType": "document"
+      },
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:44.945Z",
+        "time": 42.94600000139326,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/api/organizations",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/plain, */*"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiaXNzIjoib3BhLWh1YiIsInN1YiI6ImFkbWluIiwiZXhwIjoxNzg1OTk3MDE0LCJuYmYiOjE3ODU5MTA1ODQsImlhdCI6MTc4NTkxMDYxNH0.tT-HHTFNb57a-S8GM82QmyHyaQxlc1DkBWYuSErRcgs"
+            },
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Referer",
+              "value": ""
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "X-Organization-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-Project-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "undefined"
+            },
+            {
+              "name": "X-User-Username",
+              "value": "undefined"
+            }
+          ],
+          "queryString": [],
+          "headersSize": 611,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 404,
+          "statusText": "Not Found",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Content-Length",
+              "value": "19"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=utf-8"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:44 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff, nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 428,
+          "bodySize": 43,
+          "_transferSize": 471,
+          "content": {
+            "size": 19,
+            "mimeType": "text/plain",
+            "compression": -24,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 5.690999999368563,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.0940000000000003,
+          "wait": 36.412,
+          "receive": 0.7489999989047647,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91135",
+        "_initiator": {
+          "stack": {
+            "callFrames": [
+              {
+                "columnNumber": 7199,
+                "functionName": "",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 5200,
+                "functionName": "xhr",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 534,
+                "functionName": "Ot",
+                "lineNumber": 5,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              }
+            ],
+            "parent": {
+              "callFrames": [
+                {
+                  "columnNumber": 1304,
+                  "functionName": "_request",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1995,
+                  "functionName": "request",
+                  "lineNumber": 5,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1763,
+                  "functionName": "ee.<computed>",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 886,
+                  "functionName": "",
+                  "lineNumber": 1,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 64701,
+                  "functionName": "m",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 64583,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 24176,
+                  "functionName": "wl",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 42075,
+                  "functionName": "en",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 40430,
+                  "functionName": "",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1561,
+                  "functionName": "E",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1929,
+                  "functionName": "mn",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                }
+              ],
+              "description": "Promise.then",
+              "parentId": {
+                "debuggerId": "-2175263242809699483.5758007211217280418",
+                "id": "115"
+              }
+            }
+          },
+          "type": "script"
+        },
+        "_priority": "High",
+        "_resourceType": "xhr"
+      },
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:44.945Z",
+        "time": 42.451000015717,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/api/projects?organization_id=all",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/plain, */*"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiaXNzIjoib3BhLWh1YiIsInN1YiI6ImFkbWluIiwiZXhwIjoxNzg1OTk3MDE0LCJuYmYiOjE3ODU5MTA1ODQsImlhdCI6MTc4NTkxMDYxNH0.tT-HHTFNb57a-S8GM82QmyHyaQxlc1DkBWYuSErRcgs"
+            },
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Referer",
+              "value": ""
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "X-Organization-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-Project-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "undefined"
+            },
+            {
+              "name": "X-User-Username",
+              "value": "undefined"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "organization_id",
+              "value": "all"
+            }
+          ],
+          "headersSize": 626,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 404,
+          "statusText": "Not Found",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Content-Length",
+              "value": "19"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=utf-8"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:44 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff, nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 428,
+          "bodySize": 43,
+          "_transferSize": 471,
+          "content": {
+            "size": 19,
+            "mimeType": "text/plain",
+            "compression": -24,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 5.8260000025946646,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.052999999999999936,
+          "wait": 35.897,
+          "receive": 0.6750000175088644,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91197",
+        "_initiator": {
+          "stack": {
+            "callFrames": [
+              {
+                "columnNumber": 7199,
+                "functionName": "",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 5200,
+                "functionName": "xhr",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 534,
+                "functionName": "Ot",
+                "lineNumber": 5,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              }
+            ],
+            "parent": {
+              "callFrames": [
+                {
+                  "columnNumber": 1304,
+                  "functionName": "_request",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1995,
+                  "functionName": "request",
+                  "lineNumber": 5,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1763,
+                  "functionName": "ee.<computed>",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 886,
+                  "functionName": "",
+                  "lineNumber": 1,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 64957,
+                  "functionName": "v",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 64609,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 24176,
+                  "functionName": "wl",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 42075,
+                  "functionName": "en",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 40430,
+                  "functionName": "",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1561,
+                  "functionName": "E",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1929,
+                  "functionName": "mn",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                }
+              ],
+              "description": "Promise.then",
+              "parentId": {
+                "debuggerId": "-2175263242809699483.5758007211217280418",
+                "id": "115"
+              }
+            }
+          },
+          "type": "script"
+        },
+        "_priority": "High",
+        "_resourceType": "xhr"
+      },
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:44.982Z",
+        "time": 53.711999993538484,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/api/services?from=2026-08-05+06:08:44&to=2026-08-05+06:23:44&interval=1m",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/plain, */*"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiaXNzIjoib3BhLWh1YiIsInN1YiI6ImFkbWluIiwiZXhwIjoxNzg1OTk3MDE0LCJuYmYiOjE3ODU5MTA1ODQsImlhdCI6MTc4NTkxMDYxNH0.tT-HHTFNb57a-S8GM82QmyHyaQxlc1DkBWYuSErRcgs"
+            },
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Referer",
+              "value": ""
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "X-Organization-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-Project-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "undefined"
+            },
+            {
+              "name": "X-User-Username",
+              "value": "undefined"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "from",
+              "value": "2026-08-05 06:08:44"
+            },
+            {
+              "name": "to",
+              "value": "2026-08-05 06:23:44"
+            },
+            {
+              "name": "interval",
+              "value": "1m"
+            }
+          ],
+          "headersSize": 666,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Content-Length",
+              "value": "238"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:45 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 404,
+          "bodySize": 238,
+          "_transferSize": 642,
+          "content": {
+            "size": 238,
+            "mimeType": "application/json",
+            "compression": 0,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 3.866999997286126,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.10499999999999998,
+          "wait": 49.44,
+          "receive": 0.29999998514540493,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91193",
+        "_initiator": {
+          "stack": {
+            "callFrames": [
+              {
+                "columnNumber": 7199,
+                "functionName": "",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 5200,
+                "functionName": "xhr",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 534,
+                "functionName": "Ot",
+                "lineNumber": 5,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              }
+            ],
+            "parent": {
+              "callFrames": [
+                {
+                  "columnNumber": 1304,
+                  "functionName": "_request",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1995,
+                  "functionName": "request",
+                  "lineNumber": 5,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1763,
+                  "functionName": "ee.<computed>",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 886,
+                  "functionName": "",
+                  "lineNumber": 1,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81178,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81455,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 24176,
+                  "functionName": "wl",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 42075,
+                  "functionName": "en",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 40430,
+                  "functionName": "",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1561,
+                  "functionName": "E",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1929,
+                  "functionName": "mn",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                }
+              ],
+              "description": "Promise.then",
+              "parentId": {
+                "debuggerId": "-2175263242809699483.5758007211217280418",
+                "id": "118"
+              }
+            }
+          },
+          "type": "script"
+        },
+        "_priority": "High",
+        "_resourceType": "xhr"
+      },
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:44.982Z",
+        "time": 45.4230000032112,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/api/metrics/performance?from=2026-08-05+06:08:44&to=2026-08-05+06:23:44&interval=1m",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/plain, */*"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiaXNzIjoib3BhLWh1YiIsInN1YiI6ImFkbWluIiwiZXhwIjoxNzg1OTk3MDE0LCJuYmYiOjE3ODU5MTA1ODQsImlhdCI6MTc4NTkxMDYxNH0.tT-HHTFNb57a-S8GM82QmyHyaQxlc1DkBWYuSErRcgs"
+            },
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Referer",
+              "value": ""
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "X-Organization-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-Project-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "undefined"
+            },
+            {
+              "name": "X-User-Username",
+              "value": "undefined"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "from",
+              "value": "2026-08-05 06:08:44"
+            },
+            {
+              "name": "to",
+              "value": "2026-08-05 06:23:44"
+            },
+            {
+              "name": "interval",
+              "value": "1m"
+            }
+          ],
+          "headersSize": 677,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Content-Length",
+              "value": "34"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:45 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 403,
+          "bodySize": 34,
+          "_transferSize": 437,
+          "content": {
+            "size": 34,
+            "mimeType": "application/json",
+            "compression": 0,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 3.7970000052955,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.04599999999999993,
+          "wait": 41.227,
+          "receive": 0.3530000103637576,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91130",
+        "_initiator": {
+          "stack": {
+            "callFrames": [
+              {
+                "columnNumber": 7199,
+                "functionName": "",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 5200,
+                "functionName": "xhr",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 534,
+                "functionName": "Ot",
+                "lineNumber": 5,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              }
+            ],
+            "parent": {
+              "callFrames": [
+                {
+                  "columnNumber": 1304,
+                  "functionName": "_request",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1995,
+                  "functionName": "request",
+                  "lineNumber": 5,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1763,
+                  "functionName": "ee.<computed>",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 886,
+                  "functionName": "",
+                  "lineNumber": 1,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81178,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81455,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 24176,
+                  "functionName": "wl",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 42075,
+                  "functionName": "en",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 40430,
+                  "functionName": "",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1561,
+                  "functionName": "E",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1929,
+                  "functionName": "mn",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                }
+              ],
+              "description": "Promise.then",
+              "parentId": {
+                "debuggerId": "-2175263242809699483.5758007211217280418",
+                "id": "118"
+              }
+            }
+          },
+          "type": "script"
+        },
+        "_priority": "High",
+        "_resourceType": "xhr"
+      },
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:47.066Z",
+        "time": 53.924999985611066,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/api/services?from=2026-08-05+06:08:44&to=2026-08-05+06:23:44&interval=1m",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/plain, */*"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiaXNzIjoib3BhLWh1YiIsInN1YiI6ImFkbWluIiwiZXhwIjoxNzg1OTk3MDE0LCJuYmYiOjE3ODU5MTA1ODQsImlhdCI6MTc4NTkxMDYxNH0.tT-HHTFNb57a-S8GM82QmyHyaQxlc1DkBWYuSErRcgs"
+            },
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Referer",
+              "value": ""
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "X-Organization-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-Project-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "undefined"
+            },
+            {
+              "name": "X-User-Username",
+              "value": "undefined"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "from",
+              "value": "2026-08-05 06:08:44"
+            },
+            {
+              "name": "to",
+              "value": "2026-08-05 06:23:44"
+            },
+            {
+              "name": "interval",
+              "value": "1m"
+            }
+          ],
+          "headersSize": 666,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Content-Length",
+              "value": "238"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:47 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 404,
+          "bodySize": 238,
+          "_transferSize": 642,
+          "content": {
+            "size": 238,
+            "mimeType": "application/json",
+            "compression": 0,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 2.7449999839551746,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.1140000000000001,
+          "wait": 50.696000000000005,
+          "receive": 0.3699999942909926,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91193",
+        "_initiator": {
+          "stack": {
+            "callFrames": [
+              {
+                "columnNumber": 7199,
+                "functionName": "",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 5200,
+                "functionName": "xhr",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 534,
+                "functionName": "Ot",
+                "lineNumber": 5,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              }
+            ],
+            "parent": {
+              "callFrames": [
+                {
+                  "columnNumber": 1304,
+                  "functionName": "_request",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1995,
+                  "functionName": "request",
+                  "lineNumber": 5,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1763,
+                  "functionName": "ee.<computed>",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 886,
+                  "functionName": "",
+                  "lineNumber": 1,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81178,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81455,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 24176,
+                  "functionName": "wl",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 42075,
+                  "functionName": "en",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 36407,
+                  "functionName": "oa",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 3257,
+                  "functionName": "gt",
+                  "lineNumber": 37,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 40983,
+                  "functionName": "op",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 39989,
+                  "functionName": "Ct",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 35519,
+                  "functionName": "Sc",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1561,
+                  "functionName": "E",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1929,
+                  "functionName": "mn",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                }
+              ],
+              "description": "Promise.then",
+              "parentId": {
+                "debuggerId": "-2175263242809699483.5758007211217280418",
+                "id": "130"
+              }
+            }
+          },
+          "type": "script"
+        },
+        "_priority": "High",
+        "_resourceType": "xhr"
+      },
+      {
+        "pageref": "page_1_41096449149642633",
+        "startedDateTime": "2026-08-05T06:23:47.066Z",
+        "time": 45.76799998176284,
+        "request": {
+          "method": "GET",
+          "url": "http://192.168.100.101:8088/api/metrics/performance?from=2026-08-05+06:08:44&to=2026-08-05+06:23:44&interval=1m",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/plain, */*"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiaXNzIjoib3BhLWh1YiIsInN1YiI6ImFkbWluIiwiZXhwIjoxNzg1OTk3MDE0LCJuYmYiOjE3ODU5MTA1ODQsImlhdCI6MTc4NTkxMDYxNH0.tT-HHTFNb57a-S8GM82QmyHyaQxlc1DkBWYuSErRcgs"
+            },
+            {
+              "name": "DNT",
+              "value": "1"
+            },
+            {
+              "name": "Referer",
+              "value": ""
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "X-Organization-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-Project-ID",
+              "value": "all"
+            },
+            {
+              "name": "X-User-Role",
+              "value": "undefined"
+            },
+            {
+              "name": "X-User-Username",
+              "value": "undefined"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "from",
+              "value": "2026-08-05 06:08:44"
+            },
+            {
+              "name": "to",
+              "value": "2026-08-05 06:23:44"
+            },
+            {
+              "name": "interval",
+              "value": "1m"
+            }
+          ],
+          "headersSize": 677,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "http/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Connection",
+              "value": "keep-alive"
+            },
+            {
+              "name": "Content-Length",
+              "value": "34"
+            },
+            {
+              "name": "Content-Security-Policy",
+              "value": "default-src 'self'; img-src 'self' data: https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' ws: wss:"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 05 Aug 2026 06:23:47 GMT"
+            },
+            {
+              "name": "Referrer-Policy",
+              "value": "no-referrer"
+            },
+            {
+              "name": "Server",
+              "value": "nginx/1.29.1"
+            },
+            {
+              "name": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "name": "X-Frame-Options",
+              "value": "DENY"
+            }
+          ],
+          "redirectURL": "",
+          "headersSize": 403,
+          "bodySize": 34,
+          "_transferSize": 437,
+          "content": {
+            "size": 34,
+            "mimeType": "application/json",
+            "compression": 0,
+            "text": ""
+          }
+        },
+        "cache": {},
+        "_fromDiskCache": false,
+        "timings": {
+          "blocked": 3.034999979287386,
+          "dns": -1,
+          "connect": -1,
+          "send": 0.052999999999999936,
+          "wait": 42.267999999999994,
+          "receive": 0.41199999395757914,
+          "ssl": -1
+        },
+        "serverIPAddress": "192.168.100.101",
+        "connection": "91130",
+        "_initiator": {
+          "stack": {
+            "callFrames": [
+              {
+                "columnNumber": 7199,
+                "functionName": "",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 5200,
+                "functionName": "xhr",
+                "lineNumber": 3,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              },
+              {
+                "columnNumber": 534,
+                "functionName": "Ot",
+                "lineNumber": 5,
+                "scriptId": "421",
+                "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+              }
+            ],
+            "parent": {
+              "callFrames": [
+                {
+                  "columnNumber": 1304,
+                  "functionName": "_request",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1995,
+                  "functionName": "request",
+                  "lineNumber": 5,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 1763,
+                  "functionName": "ee.<computed>",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 886,
+                  "functionName": "",
+                  "lineNumber": 1,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81178,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 81455,
+                  "functionName": "",
+                  "lineNumber": 6,
+                  "scriptId": "421",
+                  "url": "http://192.168.100.101:8088/assets/index-B0J2A2V6.js"
+                },
+                {
+                  "columnNumber": 24176,
+                  "functionName": "wl",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 42075,
+                  "functionName": "en",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 36407,
+                  "functionName": "oa",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 3257,
+                  "functionName": "gt",
+                  "lineNumber": 37,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 40983,
+                  "functionName": "op",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 39989,
+                  "functionName": "Ct",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 35519,
+                  "functionName": "Sc",
+                  "lineNumber": 39,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1561,
+                  "functionName": "E",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                },
+                {
+                  "columnNumber": 1929,
+                  "functionName": "mn",
+                  "lineNumber": 24,
+                  "scriptId": "422",
+                  "url": "http://192.168.100.101:8088/assets/react-vendor-DSj6ozaZ.js"
+                }
+              ],
+              "description": "Promise.then",
+              "parentId": {
+                "debuggerId": "-2175263242809699483.5758007211217280418",
+                "id": "130"
+              }
+            }
+          },
+          "type": "script"
+        },
+        "_priority": "High",
+        "_resourceType": "xhr"
+      }
+    ]
+  }
+}

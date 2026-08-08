@@ -342,7 +342,7 @@ func TestFullRowRewriteClobbersConcurrentEdit(t *testing.T) {
 	t.Cleanup(func() { queryClient = prevQ })
 
 	sched := map[string]interface{}{"enabled": true, "every_minutes": 15}
-	bumpScenarioSchedule("scn-1", "org", "proj", staleSnapshot, sched)
+	bumpScenarioSchedule("scn-1", "org", "proj", "", staleSnapshot, sched)
 	flushAsyncWrites(t, f, "load_scenarios", 3)
 
 	rows := f.rows("load_scenarios")

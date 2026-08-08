@@ -60,21 +60,16 @@ func TestParsePostmanCollectionV21(t *testing.T) {
 	}
 }
 
-// TestParsePostmanSkipsBlockedHosts covers the other half of the import contract:
-// a request the SSRF guard refuses is dropped with a warning rather than failing the
-// whole parse, and the remaining requests still import.
+// TestParsePostmanSkipsBlockedHosts covers the import contract aligned with HAR:
+// cloud metadata / weird hosts are dropped with a warning; lab private hostnames and
+// unresolved DNS are kept (validate/dispatch still dial-pin via isBlockedPerfURL).
 func TestParsePostmanSkipsBlockedHosts(t *testing.T) {
-	pinPerfDNS(t, map[string]string{
-		"good.test":     "192.0.2.10",
-		"intranet.test": "192.168.7.7",
-	})
-
 	raw := []byte(`{
   "info": { "name": "Mixed" },
   "item": [
-    { "name": "Good", "request": { "method": "GET", "url": "https://good.test/ok" } },
-    { "name": "Private", "request": { "method": "GET", "url": "https://intranet.test/admin" } },
-    { "name": "Unresolvable", "request": { "method": "GET", "url": "https://nowhere.test/x" } },
+    { "name": "Good", "request": { "method": "GET", "url": "https://example.com/ok" } },
+    { "name": "PrivateIP", "request": { "method": "GET", "url": "http://192.168.7.7/admin" } },
+    { "name": "Metadata", "request": { "method": "GET", "url": "http://169.254.169.254/latest/meta-data/" } },
     { "name": "Templated", "request": { "method": "GET", "url": "https://{{host}}/x" } }
   ]
 }`)
@@ -82,22 +77,22 @@ func TestParsePostmanSkipsBlockedHosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Good + Templated survive (templated URLs are deferred, not resolved).
-	if len(steps) != 2 {
+	// Good + PrivateIP (lab kept) + Templated survive; Metadata is hard-blocked.
+	if len(steps) != 3 {
 		t.Fatalf("steps=%d warnings=%v", len(steps), warnings)
 	}
-	if got := fmt.Sprint(steps[0]["url"]); got != "https://good.test/ok" {
+	if got := fmt.Sprint(steps[0]["url"]); got != "https://example.com/ok" {
 		t.Fatalf("first step url=%q", got)
 	}
-	if got := fmt.Sprint(steps[1]["url"]); got != "https://${host}/x" {
+	if got := fmt.Sprint(steps[1]["url"]); got != "http://192.168.7.7/admin" {
+		t.Fatalf("lab private step url=%q", got)
+	}
+	if got := fmt.Sprint(steps[2]["url"]); got != "https://${host}/x" {
 		t.Fatalf("templated step url=%q", got)
 	}
 	joined := strings.Join(warnings, "\n")
-	if !strings.Contains(joined, "skipped Private: private/link-local address not allowed") {
-		t.Fatalf("missing private-host warning: %v", warnings)
-	}
-	if !strings.Contains(joined, "skipped Unresolvable: dns lookup failed") {
-		t.Fatalf("missing unresolvable-host warning: %v", warnings)
+	if !strings.Contains(joined, "skipped Metadata:") {
+		t.Fatalf("missing metadata-host warning: %v", warnings)
 	}
 }
 

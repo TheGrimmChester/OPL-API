@@ -14,7 +14,7 @@ import (
 
 // Perf lab — load scenarios, runs, metrics, k6 export (single-runner MVP).
 
-func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, http.HandlerFunc)) {
+func registerPerfLabMux(mux *http.ServeMux, authView, authEditor, authAdmin func(string, http.HandlerFunc)) {
 	authView("/api/perf/scenarios", handlePerfScenarios)
 	authView("/api/perf/runs", handlePerfRunsListOrCreate)
 	authView("/api/perf/runs/", handlePerfRunByID)
@@ -23,7 +23,7 @@ func registerPerfLabMux(mux *http.ServeMux, authView, authAdmin func(string, htt
 	authView("/api/perf/notifications/", handlePerfNotifications)
 	authView("/api/perf/schedules", handlePerfSchedules)
 	authView("/api/perf/schedules/", handlePerfSchedules)
-	authAdmin("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
+	authEditor("/api/perf/scenarios/upsert", handlePerfScenarioUpsert)
 	registerReportTemplateMux(authView, authAdmin)
 	_ = mux
 }
@@ -40,7 +40,7 @@ func loadID(prefix string, parts ...string) string {
 
 func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost || r.Method == http.MethodPut {
-		http.Error(w, "use POST /api/perf/scenarios/upsert (admin)", 405)
+		http.Error(w, "use POST /api/perf/scenarios/upsert (editor)", 405)
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -51,7 +51,7 @@ func handlePerfScenarios(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"scenarios": []interface{}{}})
 		return
 	}
-	scope := tenantScopeSQL(r, queryClient, "")
+	scope := tenantScopeSQLWithOwner(r, queryClient, "")
 	showArchived := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
 	arch := scenarioArchivedAnd()
 	if showArchived {
@@ -120,7 +120,7 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -221,7 +221,7 @@ func handlePerfScenarioUpsert(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj, "name": body.Name,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID, "name": body.Name,
 		"target_url": body.TargetURL, "method": nz(body.Method, "GET"),
 		"vus": body.VUs, "duration_seconds": body.DurationSeconds,
 		"headers_json": string(headers), "body": body.Body, "thresholds_json": string(thresh),

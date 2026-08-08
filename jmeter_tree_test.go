@@ -336,3 +336,258 @@ func TestScaleArrivalSegments(t *testing.T) {
 		t.Fatalf("sum=%d out=%#v", sum, out)
 	}
 }
+
+func TestHTTPHeadersEmitHeaderManager(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "http", "name": "Auth", "method": "GET",
+			"url": "http://127.0.0.1:8080/api",
+			"headers": []interface{}{
+				map[string]interface{}{"name": "Authorization", "value": "Bearer ${token}"},
+				map[string]interface{}{"name": "Accept", "value": "application/json"},
+			},
+			"children": []interface{}{
+				map[string]interface{}{"type": "assert", "name": "ok", "status": 200},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("hdrs", "http://127.0.0.1:8080/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `testname="OPA Correlation Headers"`) {
+		t.Fatal("plan-level OPA correlation HeaderManager must remain")
+	}
+	httpIdx := strings.Index(jmx, `<HTTPSamplerProxy`)
+	stepHM := strings.Index(jmx, `testname="HTTP Headers"`)
+	assertIdx := strings.Index(jmx, `<ResponseAssertion`)
+	if httpIdx < 0 || stepHM < 0 || assertIdx < 0 {
+		t.Fatalf("missing sampler/headers/assert markers\n%s", jmx)
+	}
+	if !(httpIdx < stepHM && stepHM < assertIdx) {
+		t.Fatalf("per-step HeaderManager must sit under sampler hashTree before assert (http=%d hm=%d assert=%d)", httpIdx, stepHM, assertIdx)
+	}
+	if !strings.Contains(jmx, `Header.name">Authorization`) || !strings.Contains(jmx, `Header.value">Bearer ${token}`) {
+		t.Fatalf("missing Authorization header emit\n%s", jmx)
+	}
+}
+
+func TestRampSecondsEmittedOnThreadGroup(t *testing.T) {
+	steps := json.RawMessage(`[{"type":"http","name":"R","method":"GET","url":"http://127.0.0.1/"}]`)
+	jmxDefault := generateJMXFromUpsertData("r", "http://127.0.0.1/", "GET", "", 5, 60, steps, nil, nil)
+	if !strings.Contains(jmxDefault, `ThreadGroup.ramp_time">10</stringProp>`) {
+		t.Fatalf("default ramp should stay 10:\n%s", jmxDefault)
+	}
+	sched := map[string]interface{}{"ramp_seconds": 45}
+	jmx := generateJMXFromUpsertData("r", "http://127.0.0.1/", "GET", "", 5, 60, steps, sched, nil)
+	if !strings.Contains(jmx, `ThreadGroup.ramp_time">45</stringProp>`) {
+		t.Fatalf("expected ramp_seconds=45 on ThreadGroup:\n%s", jmx)
+	}
+}
+
+func TestDisabledHTTPEmitsEnabledFalse(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "Off", "method": "GET", "url": "http://127.0.0.1/off", "enabled": false},
+		{"type": "http", "name": "On", "method": "GET", "url": "http://127.0.0.1/on"},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("en", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `testname="Off" enabled="false"`) {
+		t.Fatalf("disabled step should emit enabled=false:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `testname="On" enabled="true"`) {
+		t.Fatalf("enabled step should emit enabled=true:\n%s", jmx)
+	}
+	flat := flattenScenarioSteps(steps)
+	if len(flat) != 1 || flat[0]["name"] != "On" {
+		t.Fatalf("validate flatten should skip disabled: %#v", flat)
+	}
+}
+
+func TestFollowRedirectsFalse(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "NoRedir", "method": "GET", "url": "http://127.0.0.1/x", "follow_redirects": false},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("fr", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `HTTPSampler.follow_redirects">false</boolProp>`) {
+		t.Fatalf("expected follow_redirects false:\n%s", jmx)
+	}
+}
+
+func TestValidateTriageIncludesPath(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "transaction", "name": "Flow",
+			"children": []interface{}{
+				map[string]interface{}{"type": "http", "name": "Fail", "method": "GET", "url": "http://127.0.0.1:1/nope"},
+			},
+		},
+	}
+	flat := flattenScenarioSteps(steps)
+	if len(flat) < 2 {
+		t.Fatalf("flat=%#v", flat)
+	}
+	httpStep := flat[1]
+	path, ok := httpStep["path"].([]interface{})
+	if !ok || len(path) != 3 || path[0] != 0 || path[1] != "children" || path[2] != 0 {
+		t.Fatalf("want nestable path [0 children 0], got %#v", httpStep["path"])
+	}
+	results := []map[string]interface{}{
+		{"type": "http", "name": "Fail", "ok": false, "error": "connection refused", "path": path},
+	}
+	_, triage := triageValidateResults(results)
+	if len(triage) != 1 {
+		t.Fatalf("triage=%#v", triage)
+	}
+	tp, ok := triage[0]["path"].([]interface{})
+	if !ok || len(tp) != 3 || tp[2] != 0 {
+		t.Fatalf("triage path=%#v", triage[0]["path"])
+	}
+}
+
+func TestThinkMsRandEmitsUniformRandomTimer(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "T", "method": "GET", "url": "http://127.0.0.1/", "think_ms": 100, "think_ms_rand": 400},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("tr", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, "UniformRandomTimer") {
+		t.Fatalf("expected UniformRandomTimer:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `ConstantTimer.delay">100</stringProp>`) || !strings.Contains(jmx, `RandomTimer.range">300</stringProp>`) {
+		t.Fatalf("expected delay=100 range=300:\n%s", jmx)
+	}
+}
+
+func TestEmptyHeadersSkipStepHeaderManager(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "Bare", "method": "GET", "url": "http://127.0.0.1/", "headers": map[string]interface{}{}},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("eh", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if strings.Contains(jmx, `testname="HTTP Headers"`) {
+		t.Fatalf("empty headers must not emit step HeaderManager:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `testname="OPA Correlation Headers"`) {
+		t.Fatal("correlation HeaderManager must remain")
+	}
+}
+
+func TestHTTPAdvancedTimeoutsAndEncode(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "http", "name": "Adv", "method": "POST", "url": "http://127.0.0.1/x",
+			"body": `{"a":1}`, "always_encode": true, "connect_timeout_ms": 1500, "response_timeout_ms": 9000,
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("adv", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `HTTPArgument.always_encode">true</boolProp>`) {
+		t.Fatalf("always_encode true missing:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `HTTPSampler.connect_timeout">1500</stringProp>`) {
+		t.Fatalf("connect_timeout missing:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `HTTPSampler.response_timeout">9000</stringProp>`) {
+		t.Fatalf("response_timeout missing:\n%s", jmx)
+	}
+}
+
+func TestExtractAdvancedPropsEmit(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "http", "name": "H", "method": "GET", "url": "http://127.0.0.1/",
+			"children": []interface{}{
+				map[string]interface{}{
+					"type": "extract", "name": "Tok", "engine": "regex",
+					"expression": `"token"\s*:\s*"([^"]+)"`, "var": "token",
+					"match_number": 2, "template": "$1$", "default_value": "none",
+				},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("ex", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `RegexExtractor.match_number">2</stringProp>`) {
+		t.Fatalf("match_number:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `RegexExtractor.template">$1$</stringProp>`) {
+		t.Fatalf("template:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `RegexExtractor.default">none</stringProp>`) {
+		t.Fatalf("default:\n%s", jmx)
+	}
+}
+
+func TestAssertAdvancedPropsEmit(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "assert", "name": "BodyOK", "body_contains": "ready",
+			"assert_type": "equals", "assert_field": "response_data", "assume_success": true,
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("as", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `Assertion.assume_success">true</boolProp>`) {
+		t.Fatalf("assume_success:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `Assertion.test_field">Assertion.response_data</stringProp>`) {
+		t.Fatalf("assert_field:\n%s", jmx)
+	}
+}
+
+func TestTransactionAdvancedPropsEmit(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "transaction", "name": "Txn",
+			"include_timers": true, "generate_parent_sample": true,
+			"children": []interface{}{
+				map[string]interface{}{"type": "http", "name": "H", "method": "GET", "url": "http://127.0.0.1/"},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("txn", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `TransactionController.includeTimers">true</boolProp>`) {
+		t.Fatalf("includeTimers:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `TransactionController.parent">true</boolProp>`) {
+		t.Fatalf("generate parent sample:\n%s", jmx)
+	}
+}
+
+func TestIfControllerAdvancedPropsEmit(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "if", "name": "Gate", "condition": `${__jexl3(true)}`,
+			"use_expression": false, "evaluate_all": true,
+			"children": []interface{}{
+				map[string]interface{}{"type": "http", "name": "H", "method": "GET", "url": "http://127.0.0.1/"},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("if", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `IfController.evaluateAll">true</boolProp>`) {
+		t.Fatalf("evaluateAll:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `IfController.useExpression">false</boolProp>`) {
+		t.Fatalf("useExpression false:\n%s", jmx)
+	}
+}
+
+func TestForEachUseSeparatorEmit(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "foreach", "name": "Each", "input_var": "items", "return_var": "item",
+			"use_separator": false,
+			"children": []interface{}{
+				map[string]interface{}{"type": "http", "name": "H", "method": "GET", "url": "http://127.0.0.1/${item}"},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("fe", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `ForeachController.useSeparator">false</boolProp>`) {
+		t.Fatalf("useSeparator false:\n%s", jmx)
+	}
+}

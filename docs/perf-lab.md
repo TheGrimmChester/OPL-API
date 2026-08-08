@@ -58,8 +58,8 @@ production execution engine.
 | `GET .../scenarios/{id}/schedule/history` | Fire history for one scenario (`?limit=` `?outcome=` `?owner=`) |
 | `GET /api/perf/schedules` | Every enabled schedule with its server-computed next fire time and last lease owner |
 | `GET /api/perf/schedules/history` | Fire history across scenarios (`?scenario_id=` `?limit=` `?outcome=` `?owner=`) |
-| `POST .../scenarios/{id}/validate` | 1 VU dry-run seeded with the first dataset row; `ok`/`pass` + `triage[]` + `correlation_suggestions[]` + `unbound_variables[]` + `dataset` |
-| `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
+| `POST .../scenarios/{id}/validate` | 1 VU dry-run seeded with the first dataset row; `ok`/`pass` + `triage[]` (nestable `path` when available) + `correlation_suggestions[]` + `unbound_variables[]` + `dataset` |
+| `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews. Lab RFC1918/loopback/`host.docker.internal` kept with warnings (`OPA_PERF_INTERNAL_HOSTS` still required at validate/dispatch); metadata stays blocked; empty 400 includes skip tallies |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
 | `POST /api/perf/scenarios/import-postman` | Postman Collection v2/v2.1 → HTTP steps |
 | `GET /api/perf/load-policies` | Presets: smooth→ramp, sustained→soak, stress→spike, custom (+ `curve` points) |
@@ -124,7 +124,7 @@ Unknown widget/metric names are dropped on save, so an export never claims a wid
 
 ### Nested steps / visual editor backend
 
-`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip.
+`steps_json` may nest `children` under `transaction`/`container`, `if`/`while`/`loop`/`foreach`, `fragment`, and `http` (extract/assert). JMX emission opens nested `hashTree`s (`IfController` / `WhileController` / `LoopController` / `ForeachController` / `TransactionController`); validate flattens depth-first via `flattenScenarioSteps`. Import prefers a nested tree parse so controllers round-trip. Field ↔ JMX property matrix (headers, Advanced HTTP/CSV/SLA, ForEach separator, …): [jmeter-perf.md — Scenario editor field ↔ JMX matrix](jmeter-perf.md#scenario-editor-field--jmx-matrix).
 
 **A logic controller is structure, not a sample.** Flattening keeps `if` / `while` / `loop` / `foreach` (also
 `if_controller` / `while_controller` / `loop_controller` / `foreach_controller` / `for_each`) in the flat list

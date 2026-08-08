@@ -298,3 +298,44 @@ func TestFlattenedControllerMarkersAreRecognisedByValidate(t *testing.T) {
 		t.Fatalf("want %d controller markers, got %d: %#v", len(all), markers, flat)
 	}
 }
+
+// TestValidateSendsStepHeadersToTarget proves dry-run validate applies step headers
+// (map or array) onto the outbound request, not only scenario-level headers_json.
+func TestValidateSendsStepHeadersToTarget(t *testing.T) {
+	f := wireFakeClickHouse(t)
+	var gotAuth, gotAccept string
+	var hits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&hits, 1)
+		gotAuth = r.Header.Get("Authorization")
+		gotAccept = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("OPA_PERF_INTERNAL_HOSTS", "127.0.0.1")
+
+	steps := []map[string]interface{}{
+		{
+			"type": "http", "name": "Authed", "method": "GET",
+			"url": srv.URL + "/secure",
+			"headers": map[string]interface{}{
+				"Authorization": "Bearer secret-token",
+				"Accept":        "application/json",
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	f.seed("load_scenarios", validateScenarioRow("scn-hdrs", srv.URL+"/", string(raw)))
+
+	body := runValidate(t, "scn-hdrs")
+	if atomic.LoadInt64(&hits) != 1 {
+		t.Fatalf("want 1 validate hit, got %d body=%v", hits, body)
+	}
+	if gotAuth != "Bearer secret-token" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotAccept != "application/json" {
+		t.Fatalf("Accept = %q", gotAccept)
+	}
+}

@@ -513,11 +513,10 @@ func perfScenarioVarTokens(sc map[string]interface{}) []string {
 					add(v)
 				}
 			}
-			if h, ok := st["headers"].(map[string]interface{}); ok {
-				for hk, hv := range h {
-					add(hk)
-					add(hv)
-				}
+			// Headers may be a map or [{name,value}] (JMX HeaderManager import).
+			for _, hv := range stepHTTPHeaderPairs(st) {
+				add(hv[0])
+				add(hv[1])
 			}
 			walk(stepChildren(st))
 		}

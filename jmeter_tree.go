@@ -216,22 +216,33 @@ func canNestChildren(typ string) bool {
 // flattenScenarioSteps walks a VU tree depth-first into validate/runtime order
 // (containers/logic controllers unwrap; HTTP then its nested extract/assert children).
 // Fragments are definitions only (skipped); include/link expands referenced children.
+// Disabled steps (enabled=false) are skipped for validate — they remain in steps_json and
+// are still emitted to JMX with enabled="false".
 func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface{} {
 	frags := indexFragmentsByName(steps)
 	var out []map[string]interface{}
-	var walk func([]map[string]interface{})
-	walk = func(list []map[string]interface{}) {
-		for _, s := range list {
+	var walk func([]map[string]interface{}, []interface{})
+	walk = func(list []map[string]interface{}, base []interface{}) {
+		for i, s := range list {
+			p := append(append([]interface{}{}, base...), i)
+			if !stepEnabled(s) {
+				continue
+			}
 			typ := fmt.Sprint(s["type"])
 			if typ == "" || typ == "<nil>" {
 				typ = "http"
 			}
 			kids := stepChildren(s)
+			childBase := append(append([]interface{}{}, p...), "children")
+			attachPath := func(m map[string]interface{}) map[string]interface{} {
+				m["path"] = append([]interface{}{}, p...)
+				return m
+			}
 			if isPerfControllerMarkerType(typ) {
 				// A logic controller stays in the flat list as a structural marker so
 				// validate can report the journey shape; the steps it wraps follow it.
-				out = append(out, cloneStepDroppingChildren(s))
-				walk(kids)
+				out = append(out, attachPath(cloneStepDroppingChildren(s)))
+				walk(kids, childBase)
 				continue
 			}
 			switch typ {
@@ -243,39 +254,39 @@ func flattenScenarioSteps(steps []map[string]interface{}) []map[string]interface
 				// emits it. A reference that resolves to nothing contributes a failing
 				// step rather than disappearing from the run it was designed into.
 				if pnames, _ := perfStepParams(s); len(pnames) > 0 {
-					out = append(out, map[string]interface{}{
+					out = append(out, attachPath(map[string]interface{}{
 						"type": "params", "name": "Fragment inputs: " + perfIncludeRef(s),
 						"params": s["params"],
-					})
+					}))
 				}
 				if len(kids) > 0 {
-					walk(kids)
+					walk(kids, childBase)
 					continue
 				}
 				ref := perfIncludeRef(s)
 				frag, found := frags[ref]
 				if !found || frag == nil {
-					out = append(out, map[string]interface{}{
+					out = append(out, attachPath(map[string]interface{}{
 						"type": "include", "name": nz(perfStepName(s), ref), "ref": ref,
 						"ok": false, "error": "no fragment named " + ref + " in this scenario",
-					})
+					}))
 					continue
 				}
-				walk(stepChildren(frag))
+				walk(stepChildren(frag), nil)
 			case "container", "transaction":
-				out = append(out, map[string]interface{}{
+				out = append(out, attachPath(map[string]interface{}{
 					"type": "transaction", "name": s["name"], "ok": true,
-				})
-				walk(kids)
+				}))
+				walk(kids, childBase)
 			case "http":
-				out = append(out, cloneStepDroppingChildren(s))
-				walk(kids)
+				out = append(out, attachPath(cloneStepDroppingChildren(s)))
+				walk(kids, childBase)
 			default:
-				out = append(out, s)
+				out = append(out, attachPath(cloneStepDroppingChildren(s)))
 			}
 		}
 	}
-	walk(steps)
+	walk(steps, nil)
 	return out
 }
 
@@ -442,8 +453,12 @@ func parseJMXHashTreeSteps(dec *xml.Decoder) ([]map[string]interface{}, error) {
 				}
 			}
 		nextElem:
+			enabledAttr := xmlAttr(t, "enabled")
 			step := jmxElementToStep(t.Name.Local, testname, props, colls, kids)
 			if step != nil {
+				if enabledAttr == "false" {
+					step["enabled"] = false
+				}
 				steps = append(steps, step)
 			}
 		}
@@ -523,11 +538,36 @@ func jmxElementToStep(local, testname string, props map[string]string, colls map
 			"type": "http", "name": nz(testname, "Request"),
 			"method": method, "url": url, "body": props["Argument.value"],
 		}
+		if props["HTTPSampler.follow_redirects"] == "false" {
+			step["follow_redirects"] = false
+		}
+		if n := props["HTTPSampler.connect_timeout"]; n != "" && n != "0" {
+			var ms int
+			if _, err := fmt.Sscanf(n, "%d", &ms); err == nil && ms > 0 {
+				step["connect_timeout_ms"] = ms
+			}
+		}
+		if n := props["HTTPSampler.response_timeout"]; n != "" && n != "0" {
+			var ms int
+			if _, err := fmt.Sscanf(n, "%d", &ms); err == nil && ms > 0 {
+				step["response_timeout_ms"] = ms
+			}
+		}
 		var cleaned []map[string]interface{}
 		for _, k := range kids {
-			if fmt.Sprint(k["type"]) == "think" {
+			kt := fmt.Sprint(k["type"])
+			if kt == "think" {
 				if ms, ok := k["think_ms"]; ok {
 					step["think_ms"] = ms
+				}
+				if ms, ok := k["think_ms_rand"]; ok {
+					step["think_ms_rand"] = ms
+				}
+				continue
+			}
+			if kt == "_headers" {
+				if hdrs, ok := k["headers"]; ok {
+					step["headers"] = hdrs
 				}
 				continue
 			}
@@ -544,14 +584,28 @@ func jmxElementToStep(local, testname string, props map[string]string, colls map
 				"type": "fragment", "name": nz(name, "Fragment"), "children": kids,
 			}
 		}
-		return map[string]interface{}{
+		tx := map[string]interface{}{
 			"type": "transaction", "name": nz(testname, "Transaction"), "children": kids,
 		}
+		if props["TransactionController.includeTimers"] == "true" {
+			tx["include_timers"] = true
+		}
+		if props["TransactionController.parent"] == "true" {
+			tx["generate_parent_sample"] = true
+		}
+		return tx
 	case "IfController":
-		return map[string]interface{}{
+		ifc := map[string]interface{}{
 			"type": "if", "name": nz(testname, "If"),
 			"condition": props["IfController.condition"], "children": kids,
 		}
+		if props["IfController.evaluateAll"] == "true" {
+			ifc["evaluate_all"] = true
+		}
+		if props["IfController.useExpression"] == "false" {
+			ifc["use_expression"] = false
+		}
+		return ifc
 	case "WhileController":
 		return map[string]interface{}{
 			"type": "while", "name": nz(testname, "While"),
@@ -589,17 +643,40 @@ func jmxElementToStep(local, testname string, props map[string]string, colls map
 			"type": "transaction", "name": nz(testname, "Controller"), "children": kids,
 		}
 	case "RegexExtractor":
-		return map[string]interface{}{
+		ex := map[string]interface{}{
 			"type": "extract", "name": nz(testname, props["RegexExtractor.refname"]),
 			"engine": "regex", "expression": props["RegexExtractor.regex"],
 			"var": props["RegexExtractor.refname"],
 		}
+		if t := props["RegexExtractor.template"]; t != "" {
+			ex["template"] = t
+		}
+		if n := props["RegexExtractor.match_number"]; n != "" {
+			var mn int
+			if _, err := fmt.Sscanf(n, "%d", &mn); err == nil {
+				ex["match_number"] = mn
+			}
+		}
+		if d := props["RegexExtractor.default"]; d != "" {
+			ex["default_value"] = d
+		}
+		return ex
 	case "JSONPostProcessor":
-		return map[string]interface{}{
+		ex := map[string]interface{}{
 			"type": "extract", "name": nz(testname, props["JSONPostProcessor.referenceNames"]),
 			"engine": "jsonpath", "expression": props["JSONPostProcessor.jsonPathExprs"],
 			"var": props["JSONPostProcessor.referenceNames"],
 		}
+		if n := props["JSONPostProcessor.match_numbers"]; n != "" {
+			var mn int
+			if _, err := fmt.Sscanf(n, "%d", &mn); err == nil {
+				ex["match_number"] = mn
+			}
+		}
+		if d := props["JSONPostProcessor.defaultValues"]; d != "" {
+			ex["default_value"] = d
+		}
+		return ex
 	case "ResponseAssertion":
 		st := props["0"]
 		step := map[string]interface{}{"type": "assert", "name": nz(testname, "Assert")}
@@ -612,7 +689,31 @@ func jmxElementToStep(local, testname string, props map[string]string, colls map
 		if props["Assertion.test_field"] == "Assertion.response_data" {
 			step["body_contains"] = st
 		}
+		if f := props["Assertion.test_field"]; f != "" {
+			step["assert_field"] = strings.TrimPrefix(f, "Assertion.")
+		}
+		if props["Assertion.assume_success"] == "true" {
+			step["assume_success"] = true
+		}
 		return step
+	case "HeaderManager":
+		// Plan-level OPA correlation headers stay out of the step tree.
+		if strings.Contains(strings.ToLower(testname), "correlation") {
+			return nil
+		}
+		// Best-effort: alternating Header.name / Header.value values in the collection.
+		vals := colls["HeaderManager.headers"]
+		if len(vals) == 0 {
+			return nil
+		}
+		hdrs := []map[string]interface{}{}
+		for i := 0; i+1 < len(vals); i += 2 {
+			hdrs = append(hdrs, map[string]interface{}{"name": vals[i], "value": vals[i+1]})
+		}
+		if len(hdrs) == 0 {
+			return nil
+		}
+		return map[string]interface{}{"type": "_headers", "headers": hdrs}
 	case "ConstantTimer":
 		var think int
 		fmt.Sscanf(props["ConstantTimer.delay"], "%d", &think)
@@ -620,8 +721,20 @@ func jmxElementToStep(local, testname string, props map[string]string, colls map
 			return map[string]interface{}{"type": "think", "name": nz(testname, "Think"), "think_ms": think}
 		}
 		return nil
+	case "UniformRandomTimer":
+		var delay, rng int
+		fmt.Sscanf(props["ConstantTimer.delay"], "%d", &delay)
+		fmt.Sscanf(props["RandomTimer.range"], "%d", &rng)
+		if delay > 0 || rng > 0 {
+			step := map[string]interface{}{"type": "think", "name": nz(testname, "Think"), "think_ms": delay}
+			if rng > 0 {
+				step["think_ms_rand"] = delay + rng
+			}
+			return step
+		}
+		return nil
 	default:
-		// Skip HeaderManager, Arguments, ThreadGroup scaffolding, etc.
+		// Skip Arguments, ThreadGroup scaffolding, etc.
 		return nil
 	}
 }
@@ -661,7 +774,18 @@ func extractStepsFromJMXTree(raw []byte) []map[string]interface{} {
 					if err != nil || len(steps) == 0 {
 						return nil
 					}
-					return steps
+					// Drop orphan HeaderManager rows not folded under an HTTP sampler.
+					out := steps[:0]
+					for _, s := range steps {
+						if fmt.Sprint(s["type"]) == "_headers" {
+							continue
+						}
+						out = append(out, s)
+					}
+					if len(out) == 0 {
+						return nil
+					}
+					return out
 				}
 				_ = skipXMLElement(dec, nt)
 			case xml.EndElement:
