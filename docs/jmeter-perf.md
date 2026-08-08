@@ -142,30 +142,99 @@ target is the number of HTTP steps in the journey, not the number of nodes in it
 
 ## Scenario editor field ↔ JMX matrix
 
-Dashboard **Basics / Advanced** fields map 1:1 onto `steps_json` / `datasets_json` / `schedule_json` /
-`sla_json` and the emitted plan. No Advanced control without emit; no silent hardcode of a user-visible
-field.
+Canonical mapping for the visual scenario editor → stored JSON → emitted Apache JMeter plan.
+Emit source of truth: `jmeter_engine.go` (`appendStepJMXIndexed`, `writeJMXStepHeaderManager`),
+`jmeter_datasets.go` (`writeJMXCSVDataSet`), SLA gate `harden.go` (`evaluateSLAFailClosed`).
+Import reverse-mapping (best-effort) lives in `jmeter_tree.go` (`jmxElementToStep`).
 
-| Surface | Editor / JSON field | JMX / runtime |
-|---------|---------------------|---------------|
-| HTTP headers | `headers` map or `[{name,value}]` | Per-sampler `HeaderManager` under sampler hashTree (separate from plan-level OPA correlation headers) |
-| Redirects | `follow_redirects` (default true) | `HTTPSampler.follow_redirects` |
-| Timeouts | `connect_timeout_ms`, `response_timeout_ms` (>0) | `HTTPSampler.connect_timeout`, `HTTPSampler.response_timeout` |
-| Body encode | `always_encode` (default false when body set) | `HTTPSampler.postBodyRaw` honesty |
-| Think | `think_ms`, `think_ms_rand` | `ConstantTimer` or `UniformRandomTimer` when rand > think |
-| Enabled | `enabled` (default true) | element `enabled="false"`; skipped in validate |
-| Extract | `match_number`, `template`, `default_value` | RegexExtractor props |
-| Assert | `assert_type`, `assert_field`, `assume_success` | ResponseAssertion mapping |
-| Transaction | `include_timers`, `generate_parent_sample` | TransactionController bool props |
-| If | `evaluate_all`, `use_expression` | IfController props |
-| ForEach | `use_separator` | `ForeachController.useSeparator` |
-| ThreadGroup ramp | `schedule.ramp_seconds` (>0) | `ThreadGroup.ramp_time` (else **10**) |
-| CSV Advanced | `share_mode`, `quoted`, `ignore_first_line`, `encoding`, `stop_thread`, `recycle` | CSVDataSet `shareMode` / `quotedData` / `ignoreFirstLine` / `fileEncoding` / `stopThread` / `recycle` (see defaults table above) |
-| SLA | `p95_ms`, `error_rate_max`, `rps_min` | Fail-closed gate / `/gate` (`rps` missing or `< rps_min` fails) |
+Nested `children` open nested `hashTree`s. Plan-level OPA correlation headers
+(`X-OPA-Load-Run-Id` / `baggage`) are a separate ThreadGroup `HeaderManager`
+(`writeJMXCorrelationHeaders`) and are **not** the same as per-step `headers`.
+No Advanced control without emit; no silent hardcode of a user-visible field.
 
-**HAR import:** lab RFC1918 / loopback / `host.docker.internal` stay in steps with warnings; cloud metadata stays blocked. Validate/dispatch still dial-pin — set `OPA_PERF_INTERNAL_HOSTS` for those hosts. Empty imports return skip tallies.
+### HTTP (`steps_json` type `http` → `HTTPSamplerProxy`)
 
-**Auth:** validate (and upsert/import/dispatch) require **admin** when auth is on; `export-jmx` stays view-scoped.
+| Editor / JSON field | JMX element / property | Emit notes |
+|---|---|---|
+| `method`, `url` (→ domain/port/protocol/path), `body` | `HTTPSampler.*` | Body only when non-empty → `HTTPSampler.postBodyRaw` + `HTTPArgument` |
+| `headers` (map **or** `[{name,value}]`) | Child `HeaderManager` (`Header.name` / `Header.value`) | Under sampler `hashTree`, **before** extract/assert. Empty → no step HeaderManager |
+| `follow_redirects` | `HTTPSampler.follow_redirects` | Default **true** when omitted |
+| `connect_timeout_ms` | `HTTPSampler.connect_timeout` | Emitted only when **> 0** |
+| `response_timeout_ms` | `HTTPSampler.response_timeout` | Emitted only when **> 0** |
+| `always_encode` | `HTTPArgument.always_encode` | Only when body set; default **false** |
+| `think_ms` / `think_ms_rand` | `ConstantTimer` and/or `UniformRandomTimer` | When `think_ms_rand > think_ms`: delay = think, range = rand − think. Else if `think_ms > 0`: ConstantTimer only |
+| `enabled` | XML `enabled="true\|false"` | Default **true**. Validate **skips** `enabled=false`; JMX still emits disabled |
+| `selector_type` / `selector` / `page_url` / `ui_action` | `<!-- opa-ui … -->` comment | Correlation metadata only |
+
+### Extract (`type: extract`)
+
+| Editor / JSON field | JMX (regex) | JMX (jsonpath) | Defaults |
+|---|---|---|---|
+| `var` | `RegexExtractor.refname` | `JSONPostProcessor.referenceNames` | — |
+| `expression` | `RegexExtractor.regex` | `JSONPostProcessor.jsonPathExprs` | jsonpath when `engine=="jsonpath"` **or** expr starts with `$.` |
+| `match_number` | `RegexExtractor.match_number` | `JSONPostProcessor.match_numbers` | **1** |
+| `template` | `RegexExtractor.template` | *(n/a)* | **`$1$`** (regex only) |
+| `default_value` | `RegexExtractor.default` | `JSONPostProcessor.defaultValues` | `""` |
+
+### Assert (`type: assert` → `ResponseAssertion`)
+
+| Editor / JSON field | JMX property | Notes |
+|---|---|---|
+| `status` / `body_contains` | `Asserion.test_strings` + field/type | Historical spelling **`Asserion.test_strings`**. Status defaults: field `response_code`, type **8** (equals). Body defaults: field `response_data`, type **2** |
+| `assert_type` | `Assertion.test_type` | `contains`→1, `equals`→8, `regex`\|`matches`→2 |
+| `assert_field` | `Assertion.test_field` | `response_code` / `response_data` / `response_headers` |
+| `assume_success` | `Assertion.assume_success` | Default **false** |
+
+### Controllers
+
+| Type | Editor / JSON field | JMX property | Default |
+|---|---|---|---|
+| Transaction | `include_timers` | `TransactionController.includeTimers` | **false** |
+| Transaction | `generate_parent_sample` | `TransactionController.parent` | **false** |
+| If | `condition` | `IfController.condition` | `${__jexl3(true)}` if empty |
+| If | `evaluate_all` | `IfController.evaluateAll` | **false** |
+| If | `use_expression` | `IfController.useExpression` | **true** |
+| ForEach | `input_var` / `return_var` | `ForeachController.inputVal` / `returnVal` | `items` / `item` |
+| ForEach | `use_separator` | **`ForeachController.useSeparator`** | **true** |
+
+### CSV Advanced (`datasets_json.csv` → `CSVDataSet`)
+
+Emitted once at Test Plan level before the first ThreadGroup. See [Parameterised data (CSV)](#parameterised-data-csv) for delimiter / inline / filename honesty.
+
+| Editor / JSON field (aliases) | JMX property | Default |
+|---|---|---|
+| `share_mode` / `shareMode` (`all`\|`group`\|`thread`) | `shareMode` | `shareMode.all` |
+| `quoted` / `quotedData` | `quotedData` | **true** |
+| `ignore_first_line` / `ignoreFirstLine` | `ignoreFirstLine` | **false** (forced false for engine-written inline `data.csv`) |
+| `encoding` / `fileEncoding` | `fileEncoding` | `UTF-8` |
+| `stop_thread` / `stopThread` | `stopThread` | **false**; if both recycle and stop_thread → stop cleared + warning |
+| `recycle` | `recycle` | **true** |
+
+### ThreadGroup / SLA
+
+| Field | Target | Notes |
+|---|---|---|
+| `schedule.ramp_seconds` | `ThreadGroup.ramp_time` | When **> 0**; else classic group uses **10** |
+| `sla.p95_ms` / `error_rate_max` / `rps_min` | Gate / `/gate` (not JMX) | Fail-closed: missing summary fields or breach (`rps < rps_min`) |
+
+### HAR import vs run-time URL policy
+
+| Stage | Lab RFC1918 / loopback / `host.docker.internal` | Cloud metadata |
+|---|---|---|
+| **Import** | **Kept** with warnings + `private` tally | **Blocked** |
+| **Validate / dispatch** | Still blocked unless listed in **`OPA_PERF_INTERNAL_HOSTS`** | Still blocked |
+
+### Validate (`POST …/scenarios/{id}/validate`)
+
+| Behavior | Detail |
+|---|---|
+| **Admin-only** | `perfRequireAdmin` when auth enforced; viewers **403** |
+| **Step headers → target** | Dry-run applies `stepHTTPHeaderPairs` |
+| **`unbound_variables` fail-closed** | Unresolved plain `${name}` → `pass=false`; JMeter function forms not reported |
+| **`path[]` triage** | Nestable index path on triage / correlation |
+| Disabled steps | `enabled=false` omitted from dry-run; still in JSON / JMX |
+
+`export-jmx` stays view-scoped (not admin-gated).
 
 ## Scale
 
