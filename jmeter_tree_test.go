@@ -336,3 +336,124 @@ func TestScaleArrivalSegments(t *testing.T) {
 		t.Fatalf("sum=%d out=%#v", sum, out)
 	}
 }
+
+func TestHTTPHeadersEmitHeaderManager(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "http", "name": "Auth", "method": "GET",
+			"url": "http://127.0.0.1:8080/api",
+			"headers": []interface{}{
+				map[string]interface{}{"name": "Authorization", "value": "Bearer ${token}"},
+				map[string]interface{}{"name": "Accept", "value": "application/json"},
+			},
+			"children": []interface{}{
+				map[string]interface{}{"type": "assert", "name": "ok", "status": 200},
+			},
+		},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("hdrs", "http://127.0.0.1:8080/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `testname="OPA Correlation Headers"`) {
+		t.Fatal("plan-level OPA correlation HeaderManager must remain")
+	}
+	httpIdx := strings.Index(jmx, `<HTTPSamplerProxy`)
+	stepHM := strings.Index(jmx, `testname="HTTP Headers"`)
+	assertIdx := strings.Index(jmx, `<ResponseAssertion`)
+	if httpIdx < 0 || stepHM < 0 || assertIdx < 0 {
+		t.Fatalf("missing sampler/headers/assert markers\n%s", jmx)
+	}
+	if !(httpIdx < stepHM && stepHM < assertIdx) {
+		t.Fatalf("per-step HeaderManager must sit under sampler hashTree before assert (http=%d hm=%d assert=%d)", httpIdx, stepHM, assertIdx)
+	}
+	if !strings.Contains(jmx, `Header.name">Authorization`) || !strings.Contains(jmx, `Header.value">Bearer ${token}`) {
+		t.Fatalf("missing Authorization header emit\n%s", jmx)
+	}
+}
+
+func TestRampSecondsEmittedOnThreadGroup(t *testing.T) {
+	steps := json.RawMessage(`[{"type":"http","name":"R","method":"GET","url":"http://127.0.0.1/"}]`)
+	jmxDefault := generateJMXFromUpsertData("r", "http://127.0.0.1/", "GET", "", 5, 60, steps, nil, nil)
+	if !strings.Contains(jmxDefault, `ThreadGroup.ramp_time">10</stringProp>`) {
+		t.Fatalf("default ramp should stay 10:\n%s", jmxDefault)
+	}
+	sched := map[string]interface{}{"ramp_seconds": 45}
+	jmx := generateJMXFromUpsertData("r", "http://127.0.0.1/", "GET", "", 5, 60, steps, sched, nil)
+	if !strings.Contains(jmx, `ThreadGroup.ramp_time">45</stringProp>`) {
+		t.Fatalf("expected ramp_seconds=45 on ThreadGroup:\n%s", jmx)
+	}
+}
+
+func TestDisabledHTTPEmitsEnabledFalse(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "Off", "method": "GET", "url": "http://127.0.0.1/off", "enabled": false},
+		{"type": "http", "name": "On", "method": "GET", "url": "http://127.0.0.1/on"},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("en", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `testname="Off" enabled="false"`) {
+		t.Fatalf("disabled step should emit enabled=false:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `testname="On" enabled="true"`) {
+		t.Fatalf("enabled step should emit enabled=true:\n%s", jmx)
+	}
+	flat := flattenScenarioSteps(steps)
+	if len(flat) != 1 || flat[0]["name"] != "On" {
+		t.Fatalf("validate flatten should skip disabled: %#v", flat)
+	}
+}
+
+func TestFollowRedirectsFalse(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "NoRedir", "method": "GET", "url": "http://127.0.0.1/x", "follow_redirects": false},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("fr", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, `HTTPSampler.follow_redirects">false</boolProp>`) {
+		t.Fatalf("expected follow_redirects false:\n%s", jmx)
+	}
+}
+
+func TestValidateTriageIncludesPath(t *testing.T) {
+	steps := []map[string]interface{}{
+		{
+			"type": "transaction", "name": "Flow",
+			"children": []interface{}{
+				map[string]interface{}{"type": "http", "name": "Fail", "method": "GET", "url": "http://127.0.0.1:1/nope"},
+			},
+		},
+	}
+	flat := flattenScenarioSteps(steps)
+	if len(flat) < 2 {
+		t.Fatalf("flat=%#v", flat)
+	}
+	httpStep := flat[1]
+	path, ok := httpStep["path"].([]interface{})
+	if !ok || len(path) != 3 || path[0] != 0 || path[1] != "children" || path[2] != 0 {
+		t.Fatalf("want nestable path [0 children 0], got %#v", httpStep["path"])
+	}
+	results := []map[string]interface{}{
+		{"type": "http", "name": "Fail", "ok": false, "error": "connection refused", "path": path},
+	}
+	_, triage := triageValidateResults(results)
+	if len(triage) != 1 {
+		t.Fatalf("triage=%#v", triage)
+	}
+	tp, ok := triage[0]["path"].([]interface{})
+	if !ok || len(tp) != 3 || tp[2] != 0 {
+		t.Fatalf("triage path=%#v", triage[0]["path"])
+	}
+}
+
+func TestThinkMsRandEmitsUniformRandomTimer(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "http", "name": "T", "method": "GET", "url": "http://127.0.0.1/", "think_ms": 100, "think_ms_rand": 400},
+	}
+	raw, _ := json.Marshal(steps)
+	jmx := generateJMXFromUpsert("tr", "http://127.0.0.1/", "GET", "", 1, 30, raw)
+	if !strings.Contains(jmx, "UniformRandomTimer") {
+		t.Fatalf("expected UniformRandomTimer:\n%s", jmx)
+	}
+	if !strings.Contains(jmx, `ConstantTimer.delay">100</stringProp>`) || !strings.Contains(jmx, `RandomTimer.range">300</stringProp>`) {
+		t.Fatalf("expected delay=100 range=300:\n%s", jmx)
+	}
+}

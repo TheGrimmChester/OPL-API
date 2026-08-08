@@ -407,6 +407,9 @@ func triageValidateResults(results []map[string]interface{}) (pass bool, triage 
 			"status_code": step["status_code"], "url": step["url"], "method": step["method"],
 			"body_preview": step["body_preview"], "latency_ms": step["latency_ms"],
 		}
+		if p, ok := step["path"]; ok && p != nil {
+			entry["path"] = p
+		}
 		triage = append(triage, entry)
 	}
 	return pass, triage
@@ -476,6 +479,9 @@ func suggestAutoCorrelation(results []map[string]interface{}) []map[string]inter
 			sug["step_index"] = i
 			sug["step_name"] = step["name"]
 			sug["apply_under"] = "http_children"
+			if p, ok := step["path"]; ok && p != nil {
+				sug["path"] = p
+			}
 			if !ok {
 				sug["note"] = "Step failed — suggestion still useful if body contains tokens."
 			}

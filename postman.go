@@ -329,10 +329,11 @@ func expandPostmanVars(s string) string {
 	return out
 }
 
-// isBlockedPerfURLLoose skips private hosts like HAR import (warn, don't hard-fail parse).
+// isBlockedPerfURLLoose matches HAR import: hard-block metadata/weird only; lab private
+// hosts are kept (validate/dispatch still dial-pin via isBlockedPerfURL).
 func isBlockedPerfURLLoose(url string) error {
 	if strings.Contains(url, "${") {
 		return nil
 	}
-	return isBlockedPerfURL(url)
+	return isObviouslyBlockedPerfURL(url)
 }

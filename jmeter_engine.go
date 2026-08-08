@@ -41,7 +41,18 @@ func generateJMXFromUpsertData(name, targetURL, method, body string, vus, dur in
 			return generateJMXArrivalsFromUpsert(name, targetURL, method, body, stepsJSON, segs, dur, ds, rv)
 		}
 	}
-	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON, ds, rv)
+	return generateJMXConcurrentFromUpsert(name, targetURL, method, body, vus, dur, stepsJSON, ds, rv, sched)
+}
+
+// classicThreadGroupRampSeconds reads schedule.ramp_seconds for Classic ThreadGroup.
+// When omitted or ≤0, keeps the historical default of 10 (not a silent 0-ramp).
+func classicThreadGroupRampSeconds(sched map[string]interface{}) int {
+	if sched != nil {
+		if n, ok := asFloat(sched["ramp_seconds"]); ok && int(n) > 0 {
+			return int(n)
+		}
+	}
+	return 10
 }
 
 func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
@@ -69,7 +80,7 @@ func arrivalSegmentsFromSched(sched map[string]interface{}) []arrivalSegment {
 	return out
 }
 
-func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, ds *perfCSVDataset, rv *perfRendezvous) string {
+func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, dur int, stepsJSON json.RawMessage, ds *perfCSVDataset, rv *perfRendezvous, sched map[string]interface{}) string {
 	var steps []map[string]interface{}
 	_ = json.Unmarshal(stepsJSON, &steps)
 	if len(steps) == 0 {
@@ -83,6 +94,7 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
 	if dur <= 0 {
 		dur = 60
 	}
+	ramp := classicThreadGroupRampSeconds(sched)
 	steps, placement := injectPlanRendezvous(steps, rv)
 	var b strings.Builder
 	writeJMXPlanOpen(&b, name)
@@ -90,14 +102,14 @@ func generateJMXConcurrentFromUpsert(name, targetURL, method, body string, vus, 
 	writeJMXTestFragments(&b, steps, "      ")
 	b.WriteString(fmt.Sprintf(`      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="VUs" enabled="true">
         <stringProp name="ThreadGroup.num_threads">%d</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">10</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">%d</stringProp>
         <boolProp name="ThreadGroup.scheduler">true</boolProp>
         <stringProp name="ThreadGroup.duration">%d</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
           <boolProp name="LoopController.continue_forever">true</boolProp>
           <stringProp name="LoopController.loops">-1</stringProp>
         </elementProp>
-      </ThreadGroup>`+"\n", vus, dur))
+      </ThreadGroup>`+"\n", vus, ramp, dur))
 	b.WriteString("      <hashTree>\n")
 	writeJMXCorrelationHeaders(&b, "        ")
 	if placement.Mode == "thread_group" {
@@ -241,6 +253,7 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		typ = "http"
 	}
 	name := nz(fmt.Sprint(step["name"]), fmt.Sprintf("step-%d", i+1))
+	en := jmxEnabledAttr(step)
 	kids := stepChildren(step)
 	emitKids := func(list []map[string]interface{}, childIndent string) {
 		for j, child := range list {
@@ -252,49 +265,82 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		expr := fmt.Sprint(step["expression"])
 		vname := fmt.Sprint(step["var"])
 		engine := fmt.Sprint(step["engine"])
+		matchNum := 1
+		if n, ok := asFloat(step["match_number"]); ok {
+			matchNum = int(n)
+		}
+		template := "$1$"
+		if t := strings.TrimSpace(fmt.Sprint(step["template"])); t != "" && t != "<nil>" {
+			template = t
+		}
+		defaultVal := ""
+		if v, ok := step["default_value"]; ok {
+			defaultVal = fmt.Sprint(v)
+			if defaultVal == "<nil>" {
+				defaultVal = ""
+			}
+		}
 		if engine == "jsonpath" || strings.HasPrefix(expr, "$.") {
-			b.WriteString(fmt.Sprintf(`%s<JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname=%q enabled="true">
+			b.WriteString(fmt.Sprintf(`%s<JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname=%q enabled=%q>
 %s  <stringProp name="JSONPostProcessor.referenceNames">%s</stringProp>
 %s  <stringProp name="JSONPostProcessor.jsonPathExprs">%s</stringProp>
-%s  <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+%s  <stringProp name="JSONPostProcessor.match_numbers">%d</stringProp>
+%s  <stringProp name="JSONPostProcessor.defaultValues">%s</stringProp>
 %s</JSONPostProcessor>
-%s<hashTree/>`+"\n", indent, xmlEscape(name), indent, xmlEscape(vname), indent, xmlEscape(expr), indent, indent, indent))
+%s<hashTree/>`+"\n", indent, xmlEscape(name), en, indent, xmlEscape(vname), indent, xmlEscape(expr), indent, matchNum, indent, xmlEscape(defaultVal), indent, indent))
 		} else {
-			b.WriteString(fmt.Sprintf(`%s<RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor" testname=%q enabled="true">
+			b.WriteString(fmt.Sprintf(`%s<RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor" testname=%q enabled=%q>
 %s  <stringProp name="RegexExtractor.refname">%s</stringProp>
 %s  <stringProp name="RegexExtractor.regex">%s</stringProp>
-%s  <stringProp name="RegexExtractor.template">$1$</stringProp>
-%s  <stringProp name="RegexExtractor.match_number">1</stringProp>
+%s  <stringProp name="RegexExtractor.template">%s</stringProp>
+%s  <stringProp name="RegexExtractor.match_number">%d</stringProp>
+%s  <stringProp name="RegexExtractor.default">%s</stringProp>
 %s</RegexExtractor>
-%s<hashTree/>`+"\n", indent, xmlEscape(name), indent, xmlEscape(vname), indent, xmlEscape(expr), indent, indent, indent, indent))
+%s<hashTree/>`+"\n", indent, xmlEscape(name), en, indent, xmlEscape(vname), indent, xmlEscape(expr), indent, xmlEscape(template), indent, matchNum, indent, xmlEscape(defaultVal), indent, indent))
 		}
 	case "assert":
 		if st, ok := step["status"]; ok {
-			b.WriteString(fmt.Sprintf(`%s<ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled="true">
+			field := jmeterAssertField(step, "Assertion.response_code")
+			testType := jmeterAssertTestType(step, 8)
+			assume := jmeterAssumeSuccess(step, false)
+			b.WriteString(fmt.Sprintf(`%s<ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled=%q>
 %s  <collectionProp name="Asserion.test_strings">
 %s    <stringProp name="0">%v</stringProp>
 %s  </collectionProp>
-%s  <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
-%s  <boolProp name="Assertion.assume_success">false</boolProp>
-%s  <intProp name="Assertion.test_type">8</intProp>
+%s  <stringProp name="Assertion.test_field">%s</stringProp>
+%s  <boolProp name="Assertion.assume_success">%t</boolProp>
+%s  <intProp name="Assertion.test_type">%d</intProp>
 %s</ResponseAssertion>
-%s<hashTree/>`+"\n", indent, xmlEscape(name), indent, indent, st, indent, indent, indent, indent, indent, indent))
+%s<hashTree/>`+"\n", indent, xmlEscape(name), en, indent, indent, st, indent, indent, field, indent, assume, indent, testType, indent, indent))
 		}
 		if contains, ok := step["body_contains"].(string); ok && contains != "" {
-			b.WriteString(fmt.Sprintf(`%s<ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled="true">
+			field := jmeterAssertField(step, "Assertion.response_data")
+			testType := jmeterAssertTestType(step, 2)
+			assume := jmeterAssumeSuccess(step, false)
+			b.WriteString(fmt.Sprintf(`%s<ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname=%q enabled=%q>
 %s  <collectionProp name="Asserion.test_strings">
 %s    <stringProp name="0">%s</stringProp>
 %s  </collectionProp>
-%s  <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
-%s  <intProp name="Assertion.test_type">2</intProp>
+%s  <stringProp name="Assertion.test_field">%s</stringProp>
+%s  <boolProp name="Assertion.assume_success">%t</boolProp>
+%s  <intProp name="Assertion.test_type">%d</intProp>
 %s</ResponseAssertion>
-%s<hashTree/>`+"\n", indent, xmlEscape(name+" body"), indent, indent, xmlEscape(contains), indent, indent, indent, indent, indent))
+%s<hashTree/>`+"\n", indent, xmlEscape(name+" body"), en, indent, indent, xmlEscape(contains), indent, indent, field, indent, assume, indent, testType, indent, indent))
 		}
 	case "container", "transaction":
-		b.WriteString(fmt.Sprintf(`%s<TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname=%q enabled="true">
-%s  <boolProp name="TransactionController.includeTimers">false</boolProp>
+		includeTimers := false
+		if v, ok := step["include_timers"].(bool); ok {
+			includeTimers = v
+		}
+		genParent := false
+		if v, ok := step["generate_parent_sample"].(bool); ok {
+			genParent = v
+		}
+		b.WriteString(fmt.Sprintf(`%s<TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname=%q enabled=%q>
+%s  <boolProp name="TransactionController.includeTimers">%t</boolProp>
+%s  <boolProp name="TransactionController.parent">%t</boolProp>
 %s</TransactionController>
-%s<hashTree>`+"\n", indent, xmlEscape(name), indent, indent, indent))
+%s<hashTree>`+"\n", indent, xmlEscape(name), en, indent, includeTimers, indent, genParent, indent, indent))
 		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "if", "if_controller":
@@ -302,12 +348,20 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		if cond == "<nil>" {
 			cond = `${__jexl3(true)}`
 		}
-		b.WriteString(fmt.Sprintf(`%s<IfController guiclass="IfControllerPanel" testclass="IfController" testname=%q enabled="true">
+		evalAll := false
+		if v, ok := step["evaluate_all"].(bool); ok {
+			evalAll = v
+		}
+		useExpr := true
+		if v, ok := step["use_expression"].(bool); ok {
+			useExpr = v
+		}
+		b.WriteString(fmt.Sprintf(`%s<IfController guiclass="IfControllerPanel" testclass="IfController" testname=%q enabled=%q>
 %s  <stringProp name="IfController.condition">%s</stringProp>
-%s  <boolProp name="IfController.evaluateAll">false</boolProp>
-%s  <boolProp name="IfController.useExpression">true</boolProp>
+%s  <boolProp name="IfController.evaluateAll">%t</boolProp>
+%s  <boolProp name="IfController.useExpression">%t</boolProp>
 %s</IfController>
-%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(cond), indent, indent, indent, indent))
+%s<hashTree>`+"\n", indent, xmlEscape(name), en, indent, xmlEscape(cond), indent, evalAll, indent, useExpr, indent, indent))
 		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "while", "while_controller":
@@ -315,10 +369,10 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		if cond == "<nil>" {
 			cond = `${__jexl3(false)}`
 		}
-		b.WriteString(fmt.Sprintf(`%s<WhileController guiclass="WhileControllerGui" testclass="WhileController" testname=%q enabled="true">
+		b.WriteString(fmt.Sprintf(`%s<WhileController guiclass="WhileControllerGui" testclass="WhileController" testname=%q enabled=%q>
 %s  <stringProp name="WhileController.condition">%s</stringProp>
 %s</WhileController>
-%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(cond), indent, indent))
+%s<hashTree>`+"\n", indent, xmlEscape(name), en, indent, xmlEscape(cond), indent, indent))
 		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "loop", "loop_controller":
@@ -330,11 +384,11 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		if v, ok := step["forever"].(bool); ok {
 			forever = v
 		}
-		b.WriteString(fmt.Sprintf(`%s<LoopController guiclass="LoopControlPanel" testclass="LoopController" testname=%q enabled="true">
+		b.WriteString(fmt.Sprintf(`%s<LoopController guiclass="LoopControlPanel" testclass="LoopController" testname=%q enabled=%q>
 %s  <boolProp name="LoopController.continue_forever">%t</boolProp>
 %s  <stringProp name="LoopController.loops">%d</stringProp>
 %s</LoopController>
-%s<hashTree>`+"\n", indent, xmlEscape(name), indent, forever, indent, loops, indent, indent))
+%s<hashTree>`+"\n", indent, xmlEscape(name), en, indent, forever, indent, loops, indent, indent))
 		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "foreach", "foreach_controller", "for_each":
@@ -350,12 +404,12 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		if v, ok := step["use_separator"].(bool); ok {
 			useSep = v
 		}
-		b.WriteString(fmt.Sprintf(`%s<ForeachController guiclass="ForeachControlPanel" testclass="ForeachController" testname=%q enabled="true">
+		b.WriteString(fmt.Sprintf(`%s<ForeachController guiclass="ForeachControlPanel" testclass="ForeachController" testname=%q enabled=%q>
 %s  <stringProp name="ForeachController.inputVal">%s</stringProp>
 %s  <stringProp name="ForeachController.returnVal">%s</stringProp>
 %s  <boolProp name="ForeachController.useSeparator">%t</boolProp>
 %s</ForeachController>
-%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(inputVar), indent, xmlEscape(returnVar), indent, useSep, indent, indent))
+%s<hashTree>`+"\n", indent, xmlEscape(name), en, indent, xmlEscape(inputVar), indent, xmlEscape(returnVar), indent, useSep, indent, indent))
 		emitKids(kids, indent+"  ")
 		b.WriteString(indent + "</hashTree>\n")
 	case "fragment":
@@ -457,6 +511,10 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 		if body == "<nil>" {
 			body = ""
 		}
+		alwaysEncode := false
+		if v, ok := step["always_encode"].(bool); ok {
+			alwaysEncode = v
+		}
 		bodyXML := ""
 		if body != "" {
 			bodyXML = fmt.Sprintf(`
@@ -464,38 +522,199 @@ func appendStepJMXIndexed(b *strings.Builder, step map[string]interface{}, i int
 %s  <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
 %s    <collectionProp name="Arguments.arguments">
 %s      <elementProp name="" elementType="HTTPArgument">
-%s        <boolProp name="HTTPArgument.always_encode">false</boolProp>
+%s        <boolProp name="HTTPArgument.always_encode">%t</boolProp>
 %s        <stringProp name="Argument.value">%s</stringProp>
 %s        <stringProp name="Argument.metadata">=</stringProp>
 %s      </elementProp>
 %s    </collectionProp>
-%s  </elementProp>`, indent, indent, indent, indent, indent, indent, xmlEscape(body), indent, indent, indent, indent)
+%s  </elementProp>`, indent, indent, indent, indent, indent, alwaysEncode, indent, xmlEscape(body), indent, indent, indent, indent)
 		}
-		b.WriteString(fmt.Sprintf(`%s<HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname=%q enabled="true">
+		follow := true
+		if v, ok := step["follow_redirects"].(bool); ok {
+			follow = v
+		}
+		extraProps := ""
+		if n, ok := asFloat(step["connect_timeout_ms"]); ok && int(n) > 0 {
+			extraProps += fmt.Sprintf("\n%s  <stringProp name=\"HTTPSampler.connect_timeout\">%d</stringProp>", indent, int(n))
+		}
+		if n, ok := asFloat(step["response_timeout_ms"]); ok && int(n) > 0 {
+			extraProps += fmt.Sprintf("\n%s  <stringProp name=\"HTTPSampler.response_timeout\">%d</stringProp>", indent, int(n))
+		}
+		b.WriteString(fmt.Sprintf(`%s<HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname=%q enabled=%q>
 %s  <stringProp name="HTTPSampler.domain">%s</stringProp>
 %s  <stringProp name="HTTPSampler.port">%s</stringProp>
 %s  <stringProp name="HTTPSampler.protocol">%s</stringProp>
 %s  <stringProp name="HTTPSampler.path">%s</stringProp>
 %s  <stringProp name="HTTPSampler.method">%s</stringProp>
-%s  <boolProp name="HTTPSampler.follow_redirects">true</boolProp>%s
+%s  <boolProp name="HTTPSampler.follow_redirects">%t</boolProp>%s%s
 %s</HTTPSamplerProxy>
-%s<hashTree>`+"\n", indent, xmlEscape(name), indent, xmlEscape(domain), indent, xmlEscape(port), indent, xmlEscape(proto), indent, xmlEscape(path), indent, xmlEscape(method), indent, bodyXML, indent, indent))
+%s<hashTree>`+"\n", indent, xmlEscape(name), en, indent, xmlEscape(domain), indent, xmlEscape(port), indent, xmlEscape(proto), indent, xmlEscape(path), indent, xmlEscape(method), indent, follow, bodyXML, extraProps, indent, indent))
+		// Per-step headers → HeaderManager under this sampler (before extract/assert).
+		// Plan-level OPA correlation HeaderManager stays separate at ThreadGroup scope.
+		writeJMXStepHeaderManager(b, step, indent+"  ")
 		emitKids(kids, indent+"  ")
 		think := 0
 		if t, ok := asFloat(step["think_ms"]); ok {
 			think = int(t)
 		}
-		if t, ok := asFloat(step["think_ms_rand"]); ok && int(t) > think {
-			think = int(t)
+		thinkRand := 0
+		if t, ok := asFloat(step["think_ms_rand"]); ok {
+			thinkRand = int(t)
 		}
-		if think > 0 {
-			b.WriteString(fmt.Sprintf(`%s  <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think" enabled="true">
+		if thinkRand > think {
+			rng := thinkRand - think
+			b.WriteString(fmt.Sprintf(`%s  <UniformRandomTimer guiclass="UniformRandomTimerGui" testclass="UniformRandomTimer" testname="Think" enabled=%q>
+%s    <stringProp name="ConstantTimer.delay">%d</stringProp>
+%s    <stringProp name="RandomTimer.range">%d</stringProp>
+%s  </UniformRandomTimer>
+%s  <hashTree/>`+"\n", indent, en, indent, think, indent, rng, indent, indent))
+		} else if think > 0 {
+			b.WriteString(fmt.Sprintf(`%s  <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think" enabled=%q>
 %s    <stringProp name="ConstantTimer.delay">%d</stringProp>
 %s  </ConstantTimer>
-%s  <hashTree/>`+"\n", indent, indent, think, indent, indent))
+%s  <hashTree/>`+"\n", indent, en, indent, think, indent, indent))
 		}
 		b.WriteString(indent + "</hashTree>\n")
 	}
+}
+
+// stepEnabled reports whether a step should run (default true when omitted).
+func stepEnabled(step map[string]interface{}) bool {
+	if step == nil {
+		return true
+	}
+	v, ok := step["enabled"]
+	if !ok || v == nil {
+		return true
+	}
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.ToLower(strings.TrimSpace(t))
+		return s != "false" && s != "0" && s != "no"
+	case float64:
+		return t != 0
+	case int:
+		return t != 0
+	default:
+		return true
+	}
+}
+
+func jmxEnabledAttr(step map[string]interface{}) string {
+	if stepEnabled(step) {
+		return "true"
+	}
+	return "false"
+}
+
+// stepHTTPHeaderPairs normalizes headers from a map or [{name,value}] array.
+func stepHTTPHeaderPairs(step map[string]interface{}) [][2]string {
+	raw, ok := step["headers"]
+	if !ok || raw == nil {
+		return nil
+	}
+	var out [][2]string
+	switch t := raw.(type) {
+	case map[string]interface{}:
+		for k, v := range t {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			out = append(out, [2]string{k, fmt.Sprint(v)})
+		}
+	case map[string]string:
+		for k, v := range t {
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			out = append(out, [2]string{k, v})
+		}
+	case []interface{}:
+		for _, item := range t {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name := strings.TrimSpace(fmt.Sprint(m["name"]))
+			if name == "" || name == "<nil>" {
+				continue
+			}
+			out = append(out, [2]string{name, fmt.Sprint(m["value"])})
+		}
+	case []map[string]interface{}:
+		for _, m := range t {
+			name := strings.TrimSpace(fmt.Sprint(m["name"]))
+			if name == "" || name == "<nil>" {
+				continue
+			}
+			out = append(out, [2]string{name, fmt.Sprint(m["value"])})
+		}
+	}
+	return out
+}
+
+func writeJMXStepHeaderManager(b *strings.Builder, step map[string]interface{}, indent string) {
+	hdrs := stepHTTPHeaderPairs(step)
+	if len(hdrs) == 0 {
+		return
+	}
+	b.WriteString(indent + `<HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Headers" enabled="true">` + "\n")
+	b.WriteString(indent + `  <collectionProp name="HeaderManager.headers">` + "\n")
+	for _, hv := range hdrs {
+		b.WriteString(indent + `    <elementProp name="" elementType="Header">` + "\n")
+		b.WriteString(fmt.Sprintf("%s      <stringProp name=\"Header.name\">%s</stringProp>\n", indent, xmlEscape(hv[0])))
+		b.WriteString(fmt.Sprintf("%s      <stringProp name=\"Header.value\">%s</stringProp>\n", indent, xmlEscape(hv[1])))
+		b.WriteString(indent + `    </elementProp>` + "\n")
+	}
+	b.WriteString(indent + `  </collectionProp>` + "\n")
+	b.WriteString(indent + `</HeaderManager>` + "\n")
+	b.WriteString(indent + `<hashTree/>` + "\n")
+}
+
+func jmeterAssertTestType(step map[string]interface{}, def int) int {
+	at := strings.ToLower(strings.TrimSpace(fmt.Sprint(step["assert_type"])))
+	switch at {
+	case "contains":
+		return 1
+	case "equals":
+		return 8
+	case "regex", "matches":
+		return 2
+	case "", "<nil>":
+		return def
+	default:
+		return def
+	}
+}
+
+func jmeterAssertField(step map[string]interface{}, def string) string {
+	af := strings.ToLower(strings.TrimSpace(fmt.Sprint(step["assert_field"])))
+	switch af {
+	case "response_code", "assertion.response_code":
+		return "Assertion.response_code"
+	case "response_data", "assertion.response_data":
+		return "Assertion.response_data"
+	case "response_headers", "assertion.response_headers":
+		return "Assertion.response_headers"
+	case "", "<nil>":
+		return def
+	default:
+		if strings.HasPrefix(af, "assertion.") {
+			return "Assertion." + strings.TrimPrefix(af, "assertion.")
+		}
+		return def
+	}
+}
+
+func jmeterAssumeSuccess(step map[string]interface{}, def bool) bool {
+	if v, ok := step["assume_success"].(bool); ok {
+		return v
+	}
+	return def
 }
 
 // jmeterAvailable reports whether Docker (default) or host JMeter (dev-only) can run.
@@ -589,7 +808,7 @@ func dispatchJMeterRunScaled(scenarioID, runID string, vus, workers int, org, pr
 			vus, dur, steps, schedMap, dataset)
 	} else if strings.TrimSpace(jmx) == "" {
 		jmx = generateJMXFromUpsertData(getString(sc, "name"), getString(sc, "target_url"), getString(sc, "method"), getString(sc, "body"),
-			vus, dur, steps, nil, dataset)
+			vus, dur, steps, schedMap, dataset)
 	}
 	// Plans stored before the engine emitted CSVDataSet (and raw imported JMX) get the element
 	// wired in here — otherwise the data file is written but never read. An element that is

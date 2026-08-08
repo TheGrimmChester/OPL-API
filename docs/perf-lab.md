@@ -58,8 +58,8 @@ production execution engine.
 | `GET .../scenarios/{id}/schedule/history` | Fire history for one scenario (`?limit=` `?outcome=` `?owner=`) |
 | `GET /api/perf/schedules` | Every enabled schedule with its server-computed next fire time and last lease owner |
 | `GET /api/perf/schedules/history` | Fire history across scenarios (`?scenario_id=` `?limit=` `?outcome=` `?owner=`) |
-| `POST .../scenarios/{id}/validate` | 1 VU dry-run seeded with the first dataset row; `ok`/`pass` + `triage[]` + `correlation_suggestions[]` + `unbound_variables[]` + `dataset` |
-| `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews |
+| `POST .../scenarios/{id}/validate` | 1 VU dry-run seeded with the first dataset row; `ok`/`pass` + `triage[]` (nestable `path` when available) + `correlation_suggestions[]` + `unbound_variables[]` + `dataset` |
+| `POST /api/perf/scenarios/import-har` | HAR → HTTP steps (+ optional upsert); `dry_run=1` previews. Lab RFC1918/loopback/`host.docker.internal` kept with warnings (`OPA_PERF_INTERNAL_HOSTS` still required at validate/dispatch); metadata stays blocked; empty 400 includes skip tallies |
 | `POST /api/perf/scenarios/import-xhr` | XHR JSON → HTTP steps with optional selectors |
 | `POST /api/perf/scenarios/import-postman` | Postman Collection v2/v2.1 → HTTP steps |
 | `GET /api/perf/load-policies` | Presets: smooth→ramp, sustained→soak, stress→spike, custom (+ `curve` points) |

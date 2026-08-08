@@ -562,11 +562,13 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 		if typ == "" {
 			typ = "http"
 		}
-		if isPerfControllerMarkerType(typ) {
+			if isPerfControllerMarkerType(typ) {
 			// A logic controller is journey structure, not a sampler. Report the shape
 			// it was designed with and fire nothing: the steps it wraps are already in
 			// the flat list and are exercised on their own.
-			results = append(results, perfControllerMarker(typ, step))
+			entry := perfControllerMarker(typ, step)
+			copyStepPath(entry, step)
+			results = append(results, entry)
 			continue
 		}
 		switch typ {
@@ -594,6 +596,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 			results = append(results, map[string]interface{}{
 				"type": "extract", "var": vname, "value": truncateStr(val, 200), "ok": val != "",
 			})
+			copyStepPath(results[len(results)-1], step)
 		case "assert":
 			ok := true
 			msg := ""
@@ -611,6 +614,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 				}
 			}
 			results = append(results, map[string]interface{}{"type": "assert", "ok": ok, "error": msg})
+			copyStepPath(results[len(results)-1], step)
 		case "transaction":
 			results = append(results, map[string]interface{}{"type": "transaction", "name": step["name"], "ok": true})
 		case "include":
@@ -645,6 +649,7 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 			method := strings.ToUpper(nz(fmt.Sprint(step["method"]), "GET"))
 			body := expandPerfVars(fmt.Sprint(step["body"]), vars)
 			entry := map[string]interface{}{"type": "http", "name": step["name"], "method": method, "url": url}
+			copyStepPath(entry, step)
 			if err := isBlockedPerfURL(url); err != nil {
 				entry["ok"] = false
 				entry["error"] = "url blocked: " + err.Error()
@@ -658,10 +663,8 @@ func handlePerfScenarioValidate(w http.ResponseWriter, r *http.Request, id strin
 				results = append(results, entry)
 				continue
 			}
-			if hdrs, ok := step["headers"].(map[string]interface{}); ok {
-				for k, v := range hdrs {
-					req.Header.Set(k, expandPerfVars(fmt.Sprint(v), vars))
-				}
+			for _, hv := range stepHTTPHeaderPairs(step) {
+				req.Header.Set(hv[0], expandPerfVars(hv[1], vars))
 			}
 			start := time.Now()
 			resp, err := client.Do(req)
@@ -781,6 +784,15 @@ func perfControllerMarker(typ string, step map[string]interface{}) map[string]in
 	}
 	entry["note"] = "logic controller — journey structure, not a sample: a 1 VU dry run does not evaluate the branch or iteration count (Apache JMeter does that under load), and the steps it wraps are reported below it"
 	return entry
+}
+
+func copyStepPath(dst, src map[string]interface{}) {
+	if dst == nil || src == nil {
+		return
+	}
+	if p, ok := src["path"]; ok && p != nil {
+		dst["path"] = p
+	}
 }
 
 func scrubValidateVars(vars map[string]string) map[string]string {
