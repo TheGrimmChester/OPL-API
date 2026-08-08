@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -103,6 +104,35 @@ func TestEvaluateSLAFailClosed(t *testing.T) {
 	}, map[string]interface{}{"p95_ms": 500.0, "error_rate_max": 0.05})
 	if pass || len(reasons) == 0 {
 		t.Fatalf("expected fail on p95, got %v %v", pass, reasons)
+	}
+}
+
+func TestEvaluateSLAFailsWhenRPSBelowMin(t *testing.T) {
+	pass, reasons := evaluateSLAFailClosed(map[string]interface{}{
+		"requests": 10, "p95_ms": 80.0, "error_rate": 0.0, "rps": 5.0,
+	}, map[string]interface{}{"p95_ms": 500.0, "error_rate_max": 0.05, "rps_min": 10.0})
+	if pass || len(reasons) == 0 {
+		t.Fatalf("expected fail on rps_min, got %v %v", pass, reasons)
+	}
+	joined := fmt.Sprintf("%v", reasons)
+	if !strings.Contains(joined, "rps") {
+		t.Fatalf("reason should mention rps, got %v", reasons)
+	}
+	pass, reasons = evaluateSLAFailClosed(map[string]interface{}{
+		"requests": 10, "p95_ms": 80.0, "error_rate": 0.0, "rps": 12.0,
+	}, map[string]interface{}{"rps_min": 10.0})
+	if !pass || len(reasons) != 0 {
+		t.Fatalf("expected pass when rps >= rps_min, got %v %v", pass, reasons)
+	}
+	pass, reasons = evaluateSLAFailClosed(map[string]interface{}{
+		"requests": 10, "p95_ms": 80.0, "error_rate": 0.0,
+	}, map[string]interface{}{"rps_min": 1.0})
+	if pass || len(reasons) == 0 {
+		t.Fatalf("expected fail when rps missing, got %v %v", pass, reasons)
+	}
+	joined = fmt.Sprintf("%v", reasons)
+	if !strings.Contains(joined, "missing rps") {
+		t.Fatalf("want missing rps, got %v", reasons)
 	}
 }
 

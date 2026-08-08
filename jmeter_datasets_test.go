@@ -407,6 +407,7 @@ func TestImportExportRoundTripPreservesCSVDataSet(t *testing.T) {
 		`<stringProp name="filename">users.csv</stringProp>`,
 		`<stringProp name="variableNames">user,pass</stringProp>`,
 		`<stringProp name="delimiter">;</stringProp>`,
+		`<stringProp name="fileEncoding">UTF-8</stringProp>`,
 		`<boolProp name="ignoreFirstLine">true</boolProp>`,
 		`<boolProp name="quotedData">false</boolProp>`,
 		`<boolProp name="recycle">false</boolProp>`,
@@ -416,6 +417,9 @@ func TestImportExportRoundTripPreservesCSVDataSet(t *testing.T) {
 		if !strings.Contains(block, want) {
 			t.Fatalf("export lost %q\n%s", want, block)
 		}
+	}
+	if ds.Encoding != "UTF-8" {
+		t.Fatalf("import lost encoding: %#v", ds)
 	}
 	// Second lap: re-importing the export yields the same dataset.
 	sc2, _, err := parseJMXToScenario([]byte(exported), "rt2")
@@ -430,6 +434,7 @@ func TestImportExportRoundTripPreservesCSVDataSet(t *testing.T) {
 	if ds2.Filename != ds.Filename || ds2.Delimiter != ds.Delimiter || ds2.Recycle != ds.Recycle ||
 		ds2.StopThread != ds.StopThread || ds2.QuotedData != ds.QuotedData ||
 		ds2.IgnoreFirstLine != ds.IgnoreFirstLine || ds2.ShareMode != ds.ShareMode ||
+		ds2.Encoding != ds.Encoding ||
 		strings.Join(ds2.columns(), ",") != strings.Join(ds.columns(), ",") {
 		t.Fatalf("round trip drifted:\n first=%#v\nsecond=%#v", ds, ds2)
 	}
