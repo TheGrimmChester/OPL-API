@@ -256,6 +256,7 @@ Full JMeter plugin fidelity, multi-cloud public generators, real-browser hybrid 
 ## Security notes
 
 - Scenario upsert / import-jmx / import-har / import-xhr / import-postman / validate / archive / duplicate require **editor** (or admin) when `OPA_AUTH_REQUIRED=1`.
+- Personal accounts: scenario rows store `user_id` (`WriteOwner`); by-id load/validate use `OwnedRowPredicate` on that owner. Org lists of `load_scenarios` exclude personal rows via `ExcludePersonalRows`.
 - Run **dispatch / fan-out** and **cancel** still require **admin**.
 - Metrics POST requires **admin** or `OPA_PERF_RUNNER_TOKEN` (viewers cannot forge pass/fail).
 - Viewers may list scenarios and create undispatched run IDs for correlation; export-jmx/xhr/har are view-scoped.
