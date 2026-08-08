@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,7 +113,9 @@ func orchestratorTickInterval(key string, defSec, minSec int) time.Duration {
 
 func runOPLOrchestrator() {
 	setScheduleRole("opl-orchestrator")
-	addr := envOr("ORCHESTRATOR_LISTEN_ADDR", ":8097")
+	// Default bind is loopback-only. Override with ORCHESTRATOR_LISTEN_ADDR (e.g.
+	// ":8097") only when the process is on a private network and gated below.
+	addr := envOr("ORCHESTRATOR_LISTEN_ADDR", "127.0.0.1:8097")
 	tag := envOr("OPL_RUNNER_TAG", "smoke")
 	chURL := envOr("CLICKHOUSE_URL", "http://127.0.0.1:8123")
 
@@ -152,18 +156,57 @@ func runOPLOrchestrator() {
 				"dispatched; runs dispatched elsewhere are closed on the max-runtime deadline instead.",
 		})
 	})
-	mux.HandleFunc("/api/orchestrator/state", func(w http.ResponseWriter, r *http.Request) {
+	// Non-health routes require loopback client or OPL_ORCHESTRATOR_TOKEN —
+	// schedule listing must not be an unauthenticated IDOR surface.
+	mux.HandleFunc("/api/orchestrator/state", orchestratorInternal(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{
 			"ok":           true,
 			"orchestrator": orchStats.snapshot(),
 			"honesty":      "Counters are per-process and reset on restart; the durable audit trail is load_schedule_fires and load_schedule_leases.",
 		})
-	})
-	mux.HandleFunc("/api/orchestrator/schedules", handlePerfSchedules)
-	mux.HandleFunc("/api/perf/schedules", handlePerfSchedules)
-	log.Printf("opl-orchestrator listening on %s owner=%s dispatch=%v reap=%v (one container per load run)",
+	}))
+	mux.HandleFunc("/api/orchestrator/schedules", orchestratorInternal(handlePerfSchedules))
+	mux.HandleFunc("/api/perf/schedules", orchestratorInternal(handlePerfSchedules))
+	log.Printf("opl-orchestrator listening on %s owner=%s dispatch=%v reap=%v (one container per load run); non-health routes require loopback or OPL_ORCHESTRATOR_TOKEN",
 		addr, scheduleOwner(), dispatchOn, reapOn)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// orchestratorInternal gates diagnostic/schedule HTTP to loopback callers or a
+// shared bearer/token header. Health stays public for probes.
+func orchestratorInternal(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if orchestratorRequestAllowed(r) {
+			next(w, r)
+			return
+		}
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}
+}
+
+func orchestratorRequestAllowed(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	want := strings.TrimSpace(envOr("OPL_ORCHESTRATOR_TOKEN", ""))
+	if want != "" {
+		got := strings.TrimSpace(r.Header.Get("X-OPL-Orchestrator-Token"))
+		if got == "" {
+			auth := r.Header.Get("Authorization")
+			if strings.HasPrefix(auth, "Bearer ") {
+				got = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+			}
+		}
+		if got != "" && got == want {
+			return true
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	return ip != nil && ip.IsLoopback()
 }
 
 func orchestratorDispatchLoop() {

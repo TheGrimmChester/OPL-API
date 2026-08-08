@@ -874,7 +874,9 @@ func loadScenarioMapReqAny(r *http.Request, id string) map[string]interface{} {
 	return rows[0]
 }
 
-// loadScenarioMap is used by background dispatchers with explicit org/proj ownership.
+// loadScenarioMap is used only by background dispatchers that already know the
+// scenario id from a tenant-scoped schedule row. Prefer loadScenarioMapForTenant
+// or loadScenarioMapReq for HTTP — unscoped id lookup is not an HTTP surface.
 func loadScenarioMap(id string) map[string]interface{} {
 	return loadScenarioMapForTenant(id, "", "")
 }
@@ -884,7 +886,10 @@ func loadScenarioMapForTenant(id, org, proj string) map[string]interface{} {
 		return nil
 	}
 	owned := ""
-	if org != "" && proj != "" {
+	if org != "" {
+		if proj == "" {
+			proj = defaultProjectID
+		}
 		owned = fmt.Sprintf(" AND coalesce(nullif(organization_id, ''), '%s') = '%s' AND coalesce(nullif(project_id, ''), '%s') = '%s'",
 			defaultOrgID, escapeSQL(org), defaultProjectID, escapeSQL(proj))
 	}

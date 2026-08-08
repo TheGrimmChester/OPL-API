@@ -49,11 +49,19 @@ func perfAllowMetricsWrite(r *http.Request) bool {
 }
 
 // perfOwnedAnd scopes by-id reads to the write tenant when auth is on.
+// Empty org under auth → AND (1=0) (fail closed; never invent default-org).
 func perfOwnedAnd(r *http.Request) string {
-	if !authEnforced || queryClient == nil {
+	if !authEnforced || queryClient == nil || r == nil {
 		return ""
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
+	if ctx == nil {
+		return " AND (1=0)"
+	}
+	org := strings.TrimSpace(ctx.OrganizationID)
+	if org == "" || strings.EqualFold(org, tenantAll) {
+		return " AND (1=0)"
+	}
 	return " AND " + ctx.OwnedRowPredicate("")
 }
 
