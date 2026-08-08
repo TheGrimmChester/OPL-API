@@ -338,6 +338,17 @@ func TestScenarioUnboundVariablesHonoursPlanCSVColumns(t *testing.T) {
 	}
 }
 
+// Array-shaped headers (JMX HeaderManager round-trip) must fail unbound like map headers.
+func TestScenarioUnboundVariablesScansArrayHeaders(t *testing.T) {
+	sc := map[string]interface{}{
+		"steps_json": `[{"type":"http","name":"Authed","url":"http://node-app:3000/","headers":[{"name":"Authorization","value":"Bearer ${ghost}"}]}]`,
+	}
+	unbound, _ := scenarioUnboundVariables(sc)
+	if strings.Join(unbound, ",") != "ghost" {
+		t.Fatalf("unbound = %v (want ghost from array header)", unbound)
+	}
+}
+
 // Import → edit → export must keep the dataset wired with the same attributes.
 func TestImportExportRoundTripPreservesCSVDataSet(t *testing.T) {
 	imported := `<?xml version="1.0" encoding="UTF-8"?>
