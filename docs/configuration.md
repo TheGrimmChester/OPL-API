@@ -10,8 +10,7 @@
 | `CLICKHOUSE_URL` | ClickHouse HTTP endpoint |
 | `CLICKHOUSE_DB` | Product database (default `opl`). Alias: `CLICKHOUSE_DATABASE` |
 | `PEER_OPA_URL` | Optional OPA hub URL for load-run correlation and org directory (`GET /api/hub/organizations`) |
-| `PEER_OAM_URL` | OAM base URL for the project switcher (`GET /api/oam/projects?product=opl`). Enablement writes stay on OAM. |
-| `OPL_PUBLIC_URL` | Public URL for this product |
+| `PEER_OAM_URL` | OAM base URL for the project switcher (`GET /api/oam/projects?product=opl`). Enablement writes stay on OAM.  With `OPA_AUTH_REQUIRED`, unset `PEER_OAM_URL` → tenant middleware **503** (no hub/`opa.*` org table fallback). || `OPL_PUBLIC_URL` | Public URL for this product |
 | `OPL_RUN_NOTIFY_MODE` | `deliver` (default) contacts every configured channel; `log` / `log-only` / `dry-run` records intent only (no outbound HTTP, no mail) |
 | `OPL_RUN_NOTIFY_STATUSES` | Comma list to filter (`failed,cancelled`) or `terminal` / `*` / empty for all terminal statuses |
 | `OPL_RUN_NOTIFY_CHANNELS` | Comma list restricting channels (`webhook,chat,email`); empty / `*` enables all |
