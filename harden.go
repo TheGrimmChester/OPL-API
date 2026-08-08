@@ -75,6 +75,11 @@ func perfOwnedAnd(r *http.Request) string {
 	if ctx == nil {
 		return " AND (1=0)"
 	}
+	// Personal accounts own rows by user_id (empty organization_id). Org-scoped
+	// requests still require a concrete organization.
+	if ctx.PersonalScoped() {
+		return " AND " + ctx.OwnedRowPredicate("")
+	}
 	org := strings.TrimSpace(ctx.OrganizationID)
 	if org == "" || strings.EqualFold(org, tenantAll) {
 		return " AND (1=0)"

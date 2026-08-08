@@ -899,7 +899,7 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReq(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -907,7 +907,7 @@ func handlePerfScenarioArchive(w http.ResponseWriter, r *http.Request, id string
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": getString(sc, "name"), "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),
@@ -938,7 +938,7 @@ func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReqAny(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -946,7 +946,7 @@ func handlePerfScenarioUnarchive(w http.ResponseWriter, r *http.Request, id stri
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": getString(sc, "name"), "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),
@@ -977,7 +977,7 @@ func handlePerfScenarioDuplicate(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReq(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -1000,7 +1000,7 @@ func handlePerfScenarioDuplicate(w http.ResponseWriter, r *http.Request, id stri
 	newID := loadID("scn", org, proj, newName, fmt.Sprintf("%d", time.Now().UnixNano()))
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": newID, "organization_id": org, "project_id": proj,
+		"id": newID, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": newName, "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus": int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),

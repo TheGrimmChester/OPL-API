@@ -971,7 +971,7 @@ func fireScenarioNow(row, sched map[string]interface{}, st scheduleState, claimR
 // an explicit definition edit is. What it no longer carries is scheduling state
 // (last_fired_at / next_fire_at) — that lives in load_schedule_state, so the
 // background fire path never takes this write path at all.
-func bumpScenarioSchedule(id, org, proj string, row, sched map[string]interface{}) {
+func bumpScenarioSchedule(id, org, proj, userID string, row, sched map[string]interface{}) {
 	if writer == nil {
 		return
 	}
@@ -981,8 +981,11 @@ func bumpScenarioSchedule(id, org, proj string, row, sched map[string]interface{
 	if sc == nil {
 		sc = row
 	}
+	if userID == "" {
+		userID = getString(sc, "user_id")
+	}
 	payload, err := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": getString(sc, "name"), "target_url": getString(sc, "target_url"),
 		"method": nz(getString(sc, "method"), "GET"),
 		"vus":    int(getFloat64(sc, "vus")), "duration_seconds": int(getFloat64(sc, "duration_seconds")),
@@ -1110,7 +1113,7 @@ func handlePerfScenarioSchedule(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	sc := loadScenarioMapReq(r, id)
 	if sc == nil {
 		http.Error(w, "not found", 404)
@@ -1145,7 +1148,7 @@ func handlePerfScenarioSchedule(w http.ResponseWriter, r *http.Request, id strin
 		st.NextFireAt = nextFireFromSchedule(sched, now)
 		writeScheduleState(st)
 	}
-	bumpScenarioSchedule(id, org, proj, sc, sched)
+	bumpScenarioSchedule(id, org, proj, userID, sc, sched)
 	writeJSON(w, map[string]interface{}{
 		"ok": true, "id": id, "schedule": sched,
 		"status":  scheduleStatusInfo(sched, st, now),

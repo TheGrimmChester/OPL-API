@@ -97,7 +97,7 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -226,7 +226,7 @@ func handlePerfImportCapture(w http.ResponseWriter, r *http.Request, kind string
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	row, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": scnName, "target_url": firstURL, "method": firstMethod,
 		"vus": 10, "duration_seconds": 60,
 		"headers_json": "{}", "body": "", "thresholds_json": string(slaJSON),

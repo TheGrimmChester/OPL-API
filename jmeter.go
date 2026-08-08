@@ -457,7 +457,7 @@ func handlePerfImportJMX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, _ := ExtractTenantContext(r, queryClient)
-	org, proj := ctx.WriteTenant()
+	org, proj, userID := ctx.WriteOwner()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -509,7 +509,7 @@ func handlePerfImportJMX(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	payload, _ := json.Marshal(map[string]interface{}{
-		"id": id, "organization_id": org, "project_id": proj,
+		"id": id, "organization_id": org, "project_id": proj, "user_id": userID,
 		"name": sc["name"], "target_url": sc["target_url"], "method": sc["method"],
 		"vus": sc["vus"], "duration_seconds": sc["duration_seconds"],
 		"headers_json": "{}", "body": "", "thresholds_json": string(slaJSON),
